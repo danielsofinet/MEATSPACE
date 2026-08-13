@@ -1,0 +1,31 @@
+# Unreal binary assets -> Git LFS.
+# Without this, .uasset/.umap files bloat the repo and every commit gets slower.
+
+*.uasset  filter=lfs diff=lfs merge=lfs -text
+*.umap    filter=lfs diff=lfs merge=lfs -text
+*.ubulk   filter=lfs diff=lfs merge=lfs -text
+*.uexp    filter=lfs diff=lfs merge=lfs -text
+
+# Source art from Blender / Rhino
+*.fbx     filter=lfs diff=lfs merge=lfs -text
+*.glb     filter=lfs diff=lfs merge=lfs -text
+*.gltf    filter=lfs diff=lfs merge=lfs -text
+*.blend   filter=lfs diff=lfs merge=lfs -text
+*.3dm     filter=lfs diff=lfs merge=lfs -text
+*.obj     filter=lfs diff=lfs merge=lfs -text
+
+# Textures / audio
+*.png     filter=lfs diff=lfs merge=lfs -text
+*.tga     filter=lfs diff=lfs merge=lfs -text
+*.psd     filter=lfs diff=lfs merge=lfs -text
+*.exr     filter=lfs diff=lfs merge=lfs -text
+*.wav     filter=lfs diff=lfs merge=lfs -text
+*.mp3     filter=lfs diff=lfs merge=lfs -text
+
+# Text files stay text
+*.cpp     text
+*.h       text
+*.cs      text
+*.md      text
+*.ini     text
+*.uproject text

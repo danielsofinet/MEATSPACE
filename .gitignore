@@ -1,0 +1,24 @@
+# --- Unreal Engine generated ---
+Binaries/
+DerivedDataCache/
+Intermediate/
+Saved/
+Build/
+*.VC.db
+*.VC.opendb
+
+# --- IDE ---
+.vs/
+.idea/
+*.sln
+*.suo
+*.xcodeproj
+*.xcworkspace
+
+# --- OS ---
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# --- Local scratch ---
+/_scratch/

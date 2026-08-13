@@ -58,6 +58,27 @@ rewrite.
 **Expose everything tunable.** Damage, fire rate, swing arcs, health, speeds — all
 `UPROPERTY(EditAnywhere, BlueprintReadWrite)` so Daniel can iterate on feel without a compile.
 
+**Localization from day one.** The game ships English first, then **French**, then more
+languages. Therefore:
+
+- **Every player-facing string is `FText`, never `FString` and never a hardcoded literal.**
+  `FString` is for internal/debug use only. If a player can read it, it is `FText`.
+- Author UI/game text in **String Tables** (`Content/Localization/ST_*`), referenced by key.
+  Never type display text directly into a widget.
+- Use `NSLOCTEXT("Namespace", "Key", "English text")` in C++, or `LOCTEXT` with a
+  `#define LOCTEXT_NAMESPACE` block per file.
+- **Never build sentences by concatenation.** Word order differs per language. Use
+  `FText::Format` with named arguments: `FText::Format(LOCTEXT("Kills", "{Count} clankers destroyed"), Args)`.
+- Plurals and gendered forms go through `FText` plural forms, not `if (n == 1)`.
+- Numbers, dates, currency: `FText::AsNumber` etc., never manual formatting — French uses
+  comma decimal separators and space thousands separators.
+- Keep text out of textures. If art contains words, it needs a per-culture variant — flag it
+  to Daniel before he paints it in.
+- Leave **room for text expansion** in UI: French runs ~15-20% longer than English.
+
+This costs nothing now and is expensive to retrofit, because retrofitting means finding every
+string in the codebase by hand.
+
 ---
 
 ## Naming

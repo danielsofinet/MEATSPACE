@@ -6,6 +6,10 @@ public class MEATSPACE : ModuleRules
 	{
 		PCHUsage = PCHUsageMode.UseExplicitOrSharedPCHs;
 
+		// Lets us include by path from the module root, e.g. "Combat/MsWeaponComponent.h".
+		// Without this only same-directory includes resolve.
+		PublicIncludePaths.Add(ModuleDirectory);
+
 		PublicDependencyModuleNames.AddRange(new string[]
 		{
 			"Core",

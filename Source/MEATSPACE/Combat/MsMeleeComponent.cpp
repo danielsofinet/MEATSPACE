@@ -1,6 +1,7 @@
 #include "Combat/MsMeleeComponent.h"
 
 #include "Animation/AnimMontage.h"
+#include "Character/MsCharacter.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/DamageEvents.h"
@@ -115,6 +116,12 @@ void UMsMeleeComponent::BeginSwing(int32 StepIndex)
 
 	SetComponentTickEnabled(true);
 	PlayStepMontage();
+
+	// The weight of the swing itself, felt before anything is hit.
+	if (AMsCharacter* OwnerCharacter = Cast<AMsCharacter>(GetOwner()))
+	{
+		OwnerCharacter->OnSwordSwing();
+	}
 }
 
 void UMsMeleeComponent::TickComponent(float DeltaTime, ELevelTick TickType,
@@ -304,6 +311,13 @@ void UMsMeleeComponent::SweepSlice(float PrevAlpha, float NewAlpha)
 		}
 
 		HitActorsThisSwing.Add(HitActor);
+
+		// Connecting should feel heavier than swinging through air. Runs on every copy of
+		// the component, but AddCameraShake ignores anyone who is not looking through it.
+		if (AMsCharacter* OwnerCharacter = Cast<AMsCharacter>(Owner))
+		{
+			OwnerCharacter->OnSwordHit();
+		}
 
 		// Only the server's copy actually hurts anything.
 		if (Owner->HasAuthority())

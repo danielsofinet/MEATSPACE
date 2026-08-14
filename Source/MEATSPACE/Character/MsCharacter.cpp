@@ -107,8 +107,15 @@ void AMsCharacter::Tick(float DeltaSeconds)
 		return;
 	}
 
+	TickCameraTuning(DeltaSeconds);
+
 	// Re-apply every frame so live edits in the editor take effect while playing.
 	ApplyCameraSettings();
+
+	// Must run after ApplyCameraSettings - it layers on top of the base rotation it sets.
+	TickCameraJuice(DeltaSeconds);
+
+	TickCameraFollow(DeltaSeconds);
 
 	if (bUseFixedCamera)
 	{
@@ -134,6 +141,212 @@ void AMsCharacter::Tick(float DeltaSeconds)
 				const FRotator Desired(0.0f, ToAim.Rotation().Yaw, 0.0f);
 				SetActorRotation(FMath::RInterpTo(GetActorRotation(), Desired, DeltaSeconds, FaceCursorSpeed));
 			}
+		}
+	}
+}
+
+void AMsCharacter::TickCameraTuning(float DeltaSeconds)
+{
+	if (!bCameraTuningMode || !bUseFixedCamera)
+	{
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC)
+	{
+		return;
+	}
+
+	// Held keys rather than presses, so values sweep smoothly and you can feel the change
+	// happening rather than stepping through it.
+	if (PC->IsInputKeyDown(EKeys::I))
+	{
+		CameraPitch = FMath::Clamp(CameraPitch + PitchAdjustRate * DeltaSeconds, 5.0f, 89.0f);
+	}
+	if (PC->IsInputKeyDown(EKeys::K))
+	{
+		CameraPitch = FMath::Clamp(CameraPitch - PitchAdjustRate * DeltaSeconds, 5.0f, 89.0f);
+	}
+
+	if (PC->IsInputKeyDown(EKeys::U))
+	{
+		CameraFOV = FMath::Clamp(CameraFOV - FOVAdjustRate * DeltaSeconds, 5.0f, 120.0f);
+	}
+	if (PC->IsInputKeyDown(EKeys::O))
+	{
+		CameraFOV = FMath::Clamp(CameraFOV + FOVAdjustRate * DeltaSeconds, 5.0f, 120.0f);
+	}
+
+	if (PC->IsInputKeyDown(EKeys::J))
+	{
+		CameraYaw -= YawAdjustRate * DeltaSeconds;
+	}
+	if (PC->IsInputKeyDown(EKeys::L))
+	{
+		CameraYaw += YawAdjustRate * DeltaSeconds;
+	}
+
+	if (PC->IsInputKeyDown(EKeys::N))
+	{
+		MousePeekStrength = FMath::Clamp(MousePeekStrength - PeekAdjustRate * DeltaSeconds, 0.0f, 1.0f);
+	}
+	if (PC->IsInputKeyDown(EKeys::M))
+	{
+		MousePeekStrength = FMath::Clamp(MousePeekStrength + PeekAdjustRate * DeltaSeconds, 0.0f, 1.0f);
+	}
+
+	ShowCameraReadout();
+}
+
+void AMsCharacter::TickCameraFollow(float DeltaSeconds)
+{
+	if (!bUseFixedCamera || !CachedCameraBoom)
+	{
+		return;
+	}
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+
+	// Q / E swing the whole view around the character.
+	if (PC && bAllowCameraRotate)
+	{
+		if (PC->IsInputKeyDown(EKeys::Q))
+		{
+			CameraYaw -= CameraRotateRate * DeltaSeconds;
+		}
+		if (PC->IsInputKeyDown(EKeys::E))
+		{
+			CameraYaw += CameraRotateRate * DeltaSeconds;
+		}
+	}
+
+	// Lean toward the cursor. TargetOffset is world space, which is what we want here - the
+	// lean should follow the cursor on the ground plane, not tilt with the boom.
+	FVector DesiredPeek = FVector::ZeroVector;
+
+	if (MousePeekStrength > 0.0f)
+	{
+		FVector AimPoint;
+		if (ComputeAimPoint(AimPoint))
+		{
+			FVector ToAim = AimPoint - GetActorLocation();
+			ToAim.Z = 0.0f;
+
+			DesiredPeek = ToAim * MousePeekStrength;
+			DesiredPeek = DesiredPeek.GetClampedToMaxSize(MaxPeekDistance);
+		}
+	}
+
+	CurrentPeekOffset = FMath::VInterpTo(CurrentPeekOffset, DesiredPeek, DeltaSeconds, PeekLagSpeed);
+	CachedCameraBoom->TargetOffset = CurrentPeekOffset;
+}
+
+void AMsCharacter::TickCameraJuice(float DeltaSeconds)
+{
+	if (!bUseFixedCamera || !CachedCameraBoom)
+	{
+		return;
+	}
+
+	SwayTime += DeltaSeconds;
+
+	// Trauma drains continuously. Repeated hits stack rather than restarting an animation,
+	// which is why a burst of gunfire builds into a rumble instead of stuttering.
+	ShakeTrauma = FMath::Max(0.0f, ShakeTrauma - ShakeDecayRate * DeltaSeconds);
+
+	// Squaring makes small trauma nearly invisible and large trauma hit hard.
+	const float Shake = ShakeTrauma * ShakeTrauma;
+
+	FRotator Offset = FRotator::ZeroRotator;
+
+	if (bCameraSway)
+	{
+		// Sway harder the faster you are moving, so running feels physical.
+		float SpeedAlpha = 0.0f;
+		if (const UCharacterMovementComponent* Movement = GetCharacterMovement())
+		{
+			const float MaxSpeed = FMath::Max(Movement->MaxWalkSpeed, 1.0f);
+			SpeedAlpha = FMath::Clamp(GetVelocity().Size2D() / MaxSpeed, 0.0f, 1.0f);
+		}
+
+		const float Amplitude = SwayAmplitude * (1.0f + SpeedAlpha * SwayMoveBoost);
+
+		// Two different frequencies so it never traces a repeating circle.
+		Offset.Pitch += FMath::Sin(SwayTime * SwayFrequency) * Amplitude;
+		Offset.Yaw += FMath::Cos(SwayTime * SwayFrequency * 0.73f) * Amplitude;
+		Offset.Roll += FMath::Sin(SwayTime * SwayFrequency * 0.41f) * Amplitude * 0.5f;
+	}
+
+	if (Shake > KINDA_SMALL_NUMBER)
+	{
+		// Perlin rather than sine: sine reads as a wobble, noise reads as an impact.
+		Offset.Pitch += FMath::PerlinNoise1D(SwayTime * ShakeFrequency) * ShakeAngle * Shake;
+		Offset.Yaw += FMath::PerlinNoise1D((SwayTime + 137.0f) * ShakeFrequency) * ShakeAngle * Shake;
+		Offset.Roll += FMath::PerlinNoise1D((SwayTime + 291.0f) * ShakeFrequency) * ShakeRoll * Shake;
+	}
+
+	CachedCameraBoom->SetWorldRotation(FRotator(-CameraPitch, CameraYaw, 0.0f) + Offset);
+}
+
+void AMsCharacter::AddCameraShake(float Trauma)
+{
+	// Only the player looking through this camera should feel it.
+	if (!IsLocallyControlled())
+	{
+		return;
+	}
+
+	ShakeTrauma = FMath::Clamp(ShakeTrauma + Trauma, 0.0f, 1.0f);
+}
+
+void AMsCharacter::OnWeaponFired()
+{
+	AddCameraShake(FireShake);
+}
+
+void AMsCharacter::OnSwordSwing()
+{
+	AddCameraShake(SwordSwingShake);
+}
+
+void AMsCharacter::OnSwordHit()
+{
+	AddCameraShake(SwordHitShake);
+}
+
+void AMsCharacter::ShowCameraReadout() const
+{
+	if (!GEngine)
+	{
+		return;
+	}
+
+	// Debug only - fixed message keys so the lines update in place instead of scrolling.
+	GEngine->AddOnScreenDebugMessage(9001, 0.0f, FColor::Yellow,
+		FString::Printf(TEXT("PITCH  %.1f      [I raise / K lower]"), CameraPitch));
+	GEngine->AddOnScreenDebugMessage(9002, 0.0f, FColor::Yellow,
+		FString::Printf(TEXT("FOV    %.1f      [U narrow / O wide]"), CameraFOV));
+	GEngine->AddOnScreenDebugMessage(9003, 0.0f, FColor::Yellow,
+		FString::Printf(TEXT("DIST   %.0f      [scroll wheel]"), CameraDistance));
+	GEngine->AddOnScreenDebugMessage(9004, 0.0f, FColor::Yellow,
+		FString::Printf(TEXT("YAW    %.1f      [J left / L right, or Q/E]"), CameraYaw));
+	GEngine->AddOnScreenDebugMessage(9005, 0.0f, FColor::Yellow,
+		FString::Printf(TEXT("PEEK   %.2f      [N less / M more]"), MousePeekStrength));
+	GEngine->AddOnScreenDebugMessage(9006, 0.0f, FColor::Green,
+		TEXT("--- CAMERA TUNING (P to hide) ---"));
+}
+
+void AMsCharacter::OnToggleTuning()
+{
+	bCameraTuningMode = !bCameraTuningMode;
+
+	if (!bCameraTuningMode && GEngine)
+	{
+		// Clear the readout lines so they do not linger once tuning is off.
+		for (int32 Key = 9001; Key <= 9006; ++Key)
+		{
+			GEngine->RemoveOnScreenDebugMessage(Key);
 		}
 	}
 }
@@ -199,6 +412,8 @@ void AMsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 
 	PlayerInputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &AMsCharacter::OnZoomIn);
 	PlayerInputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &AMsCharacter::OnZoomOut);
+
+	PlayerInputComponent->BindKey(EKeys::P, IE_Pressed, this, &AMsCharacter::OnToggleTuning);
 }
 
 void AMsCharacter::OnZoomIn()

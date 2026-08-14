@@ -106,6 +106,11 @@ void UMsWeaponComponent::FireOnce()
 		FHitResult LocalHit;
 		const bool bLocalHit = TraceShot(TraceStart, AimDir, LocalHit);
 		PlayFireFX(bLocalHit ? LocalHit.ImpactPoint : TraceStart + AimDir * Range, bLocalHit);
+
+		if (AMsCharacter* ShooterCharacter = Cast<AMsCharacter>(OwnerPawn))
+		{
+			ShooterCharacter->OnWeaponFired();
+		}
 	}
 
 	// On the listen-server host this executes inline; on a client it goes over the wire.

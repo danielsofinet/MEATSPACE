@@ -287,7 +287,7 @@ protected:
 	 * and floaty. Some dullness gives the camera weight; too much feels like lag.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float CameraDullness = 0.86f;
+	float CameraDullness = 0.6f;
 
 	/** Dullness while aiming. Lower than hipfire - precision wants a rigid camera. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.0", ClampMax = "1.0"))

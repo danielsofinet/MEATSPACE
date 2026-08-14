@@ -159,6 +159,37 @@ protected:
 	float FollowAimSpeed = 2.5f;
 
 	/**
+	 * Orbit only: how far the mouse can tilt the camera. Clamped rather than free so the
+	 * forced-perspective look survives - you get vertical life without being able to swing
+	 * into a top-down or a ground-level view.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Orbit", meta = (ClampMin = "5.0", ClampMax = "89.0"))
+	float OrbitPitchMin = 10.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Orbit", meta = (ClampMin = "5.0", ClampMax = "89.0"))
+	float OrbitPitchMax = 50.0f;
+
+	/**
+	 * Snap the pitch back to the base camera pitch when an aim ends. On by default: the base
+	 * pitch is an art decision, so a temporary aim should not permanently change the look.
+	 * Irrelevant when Orbit is the full-time mode.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Orbit")
+	bool bRestorePitchAfterAiming = true;
+
+	/** Horizontal turn multiplier in Orbit. 1.0 is whatever the Blueprint's Look input gives. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Orbit", meta = (ClampMin = "0.05"))
+	float OrbitYawSensitivity = 1.0f;
+
+	/** Horizontal turn multiplier while aiming. Above 1 so ADS swings around faster. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Orbit", meta = (ClampMin = "0.05"))
+	float AimYawSensitivity = 1.7f;
+
+	/** Vertical multiplier. Usually lower than horizontal - vertical tilt is more sensitive. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Orbit", meta = (ClampMin = "0.05"))
+	float OrbitPitchSensitivity = 0.7f;
+
+	/**
 	 * Downward tilt in degrees. Low values keep the horizon and sky in frame, which is what
 	 * this game wants - dialled in by eye at 24.
 	 */
@@ -407,8 +438,16 @@ private:
 	EMsCameraMode LastAppliedMode = EMsCameraMode::Fixed;
 	bool bModeApplied = false;
 
-	/** Yaw captured when aiming began, for bRestoreYawAfterAiming. */
+	/** Yaw and pitch captured when aiming began, for the restore flags. */
 	float YawBeforeAiming = 0.0f;
+	float PitchBeforeAiming = 0.0f;
+
+	/** Previous frame's control rotation, so orbit can work in deltas and scale them. */
+	float LastControlYaw = 0.0f;
+	float LastControlPitch = 0.0f;
+
+	/** Seeds the delta tracking when orbit starts, so the first frame does not jump. */
+	void SeedOrbitTracking();
 
 	/** Right mouse held. Zoom only actually engages when the gun is out. */
 	bool bAimHeld = false;

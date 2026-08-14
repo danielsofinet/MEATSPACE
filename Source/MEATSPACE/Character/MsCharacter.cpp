@@ -79,17 +79,28 @@ EMsCameraMode AMsCharacter::GetEffectiveCameraMode() const
 	return CameraMode;
 }
 
+void AMsCharacter::SeedOrbitTracking()
+{
+	// Start the delta tracking from where the camera already is, so the first orbit frame
+	// produces zero movement instead of a jump.
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		PC->SetControlRotation(FRotator(-CameraPitch, CameraYaw, 0.0f));
+	}
+
+	LastControlYaw = CameraYaw;
+	LastControlPitch = -CameraPitch;
+}
+
 void AMsCharacter::OnAimPressed()
 {
 	YawBeforeAiming = CameraYaw;
+	PitchBeforeAiming = CameraPitch;
 	bAimHeld = true;
 
-	// Hand the control rotation the yaw the camera is already at, so entering Orbit does not
-	// snap the view - the mouse picks up exactly where the fixed camera was pointing.
-	if (APlayerController* PC = Cast<APlayerController>(GetController()))
-	{
-		PC->SetControlRotation(FRotator(0.0f, CameraYaw, 0.0f));
-	}
+	// Seed immediately rather than waiting for ApplyCameraMode, so the very first frame of
+	// aiming cannot snap the view.
+	SeedOrbitTracking();
 }
 
 void AMsCharacter::OnAimReleased()
@@ -99,6 +110,12 @@ void AMsCharacter::OnAimReleased()
 	if (bRestoreYawAfterAiming)
 	{
 		CameraYaw = YawBeforeAiming;
+	}
+
+	// The base pitch is an art decision - a temporary aim should not permanently change it.
+	if (bRestorePitchAfterAiming && CameraMode != EMsCameraMode::Orbit)
+	{
+		CameraPitch = PitchBeforeAiming;
 	}
 }
 
@@ -183,10 +200,28 @@ void AMsCharacter::Tick(float DeltaSeconds)
 	{
 		if (Mode == EMsCameraMode::Orbit)
 		{
-			// The Blueprint's Look input already drives control rotation with the mouse, so
-			// we simply read it as the camera yaw rather than fighting it. Pitch stays locked,
-			// which is what preserves the forced-perspective look while the world turns.
-			CameraYaw = PC->GetControlRotation().Yaw;
+			// The Blueprint's Look input drives control rotation with the mouse. We read it as
+			// a DELTA rather than an absolute so the movement can be scaled - reading it
+			// absolutely would make sensitivity impossible to change from here.
+			const FRotator ControlRotation = PC->GetControlRotation();
+
+			const float YawDelta = FRotator::NormalizeAxis(ControlRotation.Yaw - LastControlYaw);
+			const float PitchDelta = FRotator::NormalizeAxis(ControlRotation.Pitch) - LastControlPitch;
+
+			const float YawSensitivity = IsAiming() ? AimYawSensitivity : OrbitYawSensitivity;
+			CameraYaw = FRotator::NormalizeAxis(CameraYaw + YawDelta * YawSensitivity);
+
+			// Control pitch goes negative looking down; our CameraPitch goes positive. Clamped
+			// so the mouse gives vertical life without destroying the forced perspective.
+			const float MinPitch = FMath::Min(OrbitPitchMin, OrbitPitchMax);
+			const float MaxPitch = FMath::Max(OrbitPitchMin, OrbitPitchMax);
+			CameraPitch = FMath::Clamp(CameraPitch - PitchDelta * OrbitPitchSensitivity, MinPitch, MaxPitch);
+
+			// Write the clamped result back so control rotation never drifts away from the
+			// camera, and so the next frame's delta is purely new mouse movement.
+			PC->SetControlRotation(FRotator(-CameraPitch, CameraYaw, 0.0f));
+			LastControlYaw = CameraYaw;
+			LastControlPitch = -CameraPitch;
 		}
 		else
 		{
@@ -245,9 +280,28 @@ void AMsCharacter::ApplyCameraMode()
 
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
-		// Orbit needs the mouse captured to spin the camera; the others need a free cursor
-		// because the cursor IS the aiming device.
-		PC->bShowMouseCursor = UsesCursorAim();
+		if (Mode == EMsCameraMode::Orbit)
+		{
+			// Capture the mouse properly. Hiding the cursor is not enough - an uncaptured
+			// cursor still hits the edge of the screen, at which point it stops producing
+			// movement and the camera appears to stick and judder against the boundary.
+			FInputModeGameOnly InputMode;
+			InputMode.SetConsumeCaptureMouseDown(false);
+			PC->SetInputMode(InputMode);
+			PC->bShowMouseCursor = false;
+
+			SeedOrbitTracking();
+		}
+		else
+		{
+			// Cursor modes: visible, and locked inside the viewport so aiming cannot wander
+			// onto a second monitor mid-fight.
+			FInputModeGameAndUI InputMode;
+			InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::LockAlways);
+			InputMode.SetHideCursorDuringCapture(false);
+			PC->SetInputMode(InputMode);
+			PC->bShowMouseCursor = true;
+		}
 	}
 
 	// Peek is meaningless in Orbit - the camera is already pointing where you look.

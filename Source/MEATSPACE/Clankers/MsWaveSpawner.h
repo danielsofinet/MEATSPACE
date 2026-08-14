@@ -1,38 +1,11 @@
 #pragma once
 
 #include "CoreMinimal.h"
+#include "Clankers/MsSpawnTypes.h"
 #include "GameFramework/Actor.h"
 #include "MsWaveSpawner.generated.h"
 
 class AMsClankerBase;
-
-/** One clanker type in the spawn table, with when and how often it appears. */
-USTRUCT(BlueprintType)
-struct FMsSpawnEntry
-{
-	GENERATED_BODY()
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawn")
-	TSubclassOf<AMsClankerBase> ClankerClass;
-
-	/** Relative chance against the other eligible entries. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawn", meta = (ClampMin = "0.0"))
-	float Weight = 1.0f;
-
-	/** Not spawned before this wave. Use it to introduce types gradually. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawn", meta = (ClampMin = "1"))
-	int32 FirstWave = 1;
-
-	/**
-	 * Ceiling on how many of THIS type may be alive at once. 0 means unlimited.
-	 *
-	 * Weight controls how often a type appears; this controls how many can pile up. They are
-	 * different problems: a type the player tends to ignore or struggles to kill accumulates
-	 * across waves no matter how rare each individual spawn is.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Spawn", meta = (ClampMin = "0"))
-	int32 MaxAlive = 0;
-};
 
 /**
  * Spawns escalating waves of clankers in a ring around the player.

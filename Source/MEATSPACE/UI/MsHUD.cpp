@@ -6,6 +6,7 @@
 #include "Combat/MsHealthComponent.h"
 #include "Engine/Canvas.h"
 #include "Engine/World.h"
+#include "Game/MsCutsceneSubsystem.h"
 #include "Game/MsObjectiveSubsystem.h"
 #include "GameFramework/PlayerController.h"
 #include "World/MsInteractable.h"
@@ -21,6 +22,34 @@ void AMsHUD::DrawHUD()
 	}
 
 	const AMsCharacter* OwnerCharacter = Cast<AMsCharacter>(GetOwningPawn());
+
+	// A cutscene owns the whole screen. Drawing the health bar or crosshair over it would
+	// break the one thing a cutscene is for.
+	if (UWorld* World = GetWorld())
+	{
+		if (const UMsCutsceneSubsystem* Cutscenes = World->GetSubsystem<UMsCutsceneSubsystem>())
+		{
+			if (Cutscenes->IsPlaying())
+			{
+				const float Alpha = Cutscenes->GetOverlayAlpha();
+				DrawRect(FLinearColor(0.0f, 0.0f, 0.0f, Alpha), 0.0f, 0.0f, Canvas->ClipX, Canvas->ClipY);
+
+				const FString Line = Cutscenes->GetCurrentLine().ToString();
+				if (!Line.IsEmpty())
+				{
+					float TextWidth = 0.0f;
+					float TextHeight = 0.0f;
+					GetTextSize(Line, TextWidth, TextHeight, nullptr, StoryTextScale);
+
+					DrawText(Line, FLinearColor(1.0f, 1.0f, 1.0f, Alpha),
+						(Canvas->ClipX - TextWidth) * 0.5f, Canvas->ClipY * 0.5f,
+						nullptr, StoryTextScale);
+				}
+
+				return;
+			}
+		}
+	}
 
 	// Flash first so it sits behind the rest of the HUD.
 	DrawDamageFlash(OwnerCharacter);

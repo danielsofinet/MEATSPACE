@@ -73,6 +73,30 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Clanker", meta = (ClampMin = "0.0"))
 	float AggroRange = 0.0f;
 
+	// --- Contact damage ---
+
+	/**
+	 * Damage per touch. Kept low on purpose: a swarm applies this many times over, so the
+	 * threat comes from the number of clankers rather than any one of them.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Clanker|Contact", meta = (ClampMin = "0.0"))
+	float ContactDamage = 7.0f;
+
+	/** Seconds between hits from this clanker. Per-clanker, so a crowd still stacks up. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Clanker|Contact", meta = (ClampMin = "0.05"))
+	float ContactInterval = 1.0f;
+
+	/** Extra reach beyond StopDistance at which contact registers. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Clanker|Contact", meta = (ClampMin = "0.0"))
+	float ContactReach = 45.0f;
+
+	/** Vertical tolerance, so a hovering clanker cannot claw someone far below it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Clanker|Contact", meta = (ClampMin = "0.0"))
+	float ContactHeightTolerance = 160.0f;
+
+	/** Applies contact damage if close enough and off cooldown. Server only. */
+	void TryContactDamage(APawn* TargetPlayer);
+
 	/** Turn to face the direction of travel. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Clanker")
 	bool bFaceMovementDirection = true;
@@ -101,4 +125,7 @@ protected:
 
 	/** Cached horizontal distance to the target this frame. */
 	float DistanceToTarget = 0.0f;
+
+	/** When this clanker last landed a hit, for its own cooldown. */
+	float LastContactTime = -1000.0f;
 };

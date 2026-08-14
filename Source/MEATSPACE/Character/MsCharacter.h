@@ -7,6 +7,7 @@
 
 class UMsWeaponComponent;
 class UMsMeleeComponent;
+class UMsHealthComponent;
 class USpringArmComponent;
 class UCameraComponent;
 
@@ -40,6 +41,16 @@ public:
 	/** Anti-ground. Swept arc. */
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
 	UMsMeleeComponent* GetMelee() const { return Melee; }
+
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
+	UMsHealthComponent* GetHealth() const { return HealthComponent; }
+
+	/** 0..1, fades after taking damage. Drives the HUD's hit flash. */
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
+	float GetDamageFlash() const { return DamageFlashAlpha; }
+
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
+	bool IsDead() const { return bIsDead; }
 
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
 	EMsWeaponSlot GetActiveSlot() const { return ActiveSlot; }
@@ -90,6 +101,30 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Meatspace|Combat")
 	TObjectPtr<UMsMeleeComponent> Melee;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Meatspace|Combat")
+	TObjectPtr<UMsHealthComponent> HealthComponent;
+
+	/** Seconds spent dead before respawning. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Combat", meta = (ClampMin = "0.1"))
+	float RespawnDelay = 2.5f;
+
+	/** Camera trauma when hit. Getting hurt should be felt, not just seen on a bar. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Juice", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float HurtShake = 0.45f;
+
+	/** How long the red hit flash takes to fade. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Combat", meta = (ClampMin = "0.05"))
+	float DamageFlashDuration = 0.45f;
+
+	UFUNCTION()
+	void HandleHealthChanged(float NewHealth, float Delta);
+
+	UFUNCTION()
+	void HandleDeath(AActor* DeadActor);
+
+	/** Server-side. Puts the character back at a player start with full health. */
+	void Respawn();
 
 	/** Which weapon is out. Replicated so other players can see it later. */
 	UPROPERTY(ReplicatedUsing = OnRep_ActiveSlot, BlueprintReadOnly, Category = "Meatspace|Combat")
@@ -326,4 +361,10 @@ private:
 
 	float ShakeTrauma = 0.0f;
 	float SwayTime = 0.0f;
+
+	/** Fades from 1 to 0 after taking damage. */
+	float DamageFlashAlpha = 0.0f;
+
+	bool bIsDead = false;
+	FTimerHandle RespawnTimer;
 };

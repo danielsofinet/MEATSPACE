@@ -45,4 +45,37 @@ protected:
 	/** Dot colour while the sword is equipped, so the two modes read differently at a glance. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Crosshair")
 	FLinearColor SwordDotColor = FLinearColor(0.35f, 0.85f, 1.0f, 0.7f);
+
+	// --- Health bar. Deliberately wordless: no text means no localization burden, and a bar
+	// reads faster than a number in a fight anyway. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Health")
+	bool bShowHealthBar = true;
+
+	/** Bar width as a fraction of screen width. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Health", meta = (ClampMin = "0.05", ClampMax = "1.0"))
+	float HealthBarWidthFraction = 0.26f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Health", meta = (ClampMin = "2.0"))
+	float HealthBarHeight = 16.0f;
+
+	/** Distance from the bottom of the screen, in pixels. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Health", meta = (ClampMin = "0.0"))
+	float HealthBarBottomMargin = 48.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Health")
+	FLinearColor HealthBarBackColor = FLinearColor(0.02f, 0.02f, 0.03f, 0.75f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Health")
+	FLinearColor HealthHighColor = FLinearColor(0.25f, 0.9f, 0.45f, 0.95f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Health")
+	FLinearColor HealthLowColor = FLinearColor(0.95f, 0.2f, 0.15f, 0.95f);
+
+	/** Peak opacity of the red flash when hit. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Health", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float DamageFlashOpacity = 0.30f;
+
+	void DrawHealthBar(const class AMsCharacter* Character);
+	void DrawDamageFlash(const class AMsCharacter* Character);
 };

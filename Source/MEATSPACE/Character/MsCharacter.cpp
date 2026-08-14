@@ -1,16 +1,20 @@
 #include "Character/MsCharacter.h"
 
 #include "Camera/CameraComponent.h"
+#include "Combat/MsHealthComponent.h"
 #include "Combat/MsMeleeComponent.h"
 #include "Combat/MsWeaponComponent.h"
 #include "Components/InputComponent.h"
+#include "Components/SkeletalMeshComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "GameFramework/GameModeBase.h"
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/SpringArmComponent.h"
 #include "InputCoreTypes.h"
 #include "Net/UnrealNetwork.h"
+#include "TimerManager.h"
 
 namespace
 {
@@ -35,6 +39,10 @@ AMsCharacter::AMsCharacter()
 
 	Weapon = CreateDefaultSubobject<UMsWeaponComponent>(TEXT("Weapon"));
 	Melee = CreateDefaultSubobject<UMsMeleeComponent>(TEXT("Melee"));
+
+	HealthComponent = CreateDefaultSubobject<UMsHealthComponent>(TEXT("HealthComponent"));
+	HealthComponent->MaxHealth = 100.0f;
+	HealthComponent->Health = 100.0f;
 }
 
 void AMsCharacter::BeginPlay()
@@ -53,6 +61,12 @@ void AMsCharacter::BeginPlay()
 
 	DesiredCameraYaw = CameraYaw;
 	DesiredCameraPitch = CameraPitch;
+
+	if (HealthComponent)
+	{
+		HealthComponent->OnHealthChanged.AddDynamic(this, &AMsCharacter::HandleHealthChanged);
+		HealthComponent->OnDeath.AddDynamic(this, &AMsCharacter::HandleDeath);
+	}
 
 	if (bDriveCameraRig)
 	{
@@ -237,6 +251,12 @@ void AMsCharacter::Tick(float DeltaSeconds)
 	if (!IsLocallyControlled())
 	{
 		return;
+	}
+
+	// Hit flash fades out on its own.
+	if (DamageFlashAlpha > 0.0f)
+	{
+		DamageFlashAlpha = FMath::Max(0.0f, DamageFlashAlpha - DeltaSeconds / FMath::Max(DamageFlashDuration, 0.05f));
 	}
 
 	TickMouseLook(DeltaSeconds);
@@ -445,6 +465,103 @@ void AMsCharacter::TickCameraJuice(float DeltaSeconds)
 	}
 
 	CachedCameraBoom->SetWorldRotation(FRotator(-CameraPitch, CameraYaw, 0.0f) + Offset);
+}
+
+void AMsCharacter::HandleHealthChanged(float NewHealth, float Delta)
+{
+	// Delta is negative when hurt. Fires on server and clients alike, so the feedback below
+	// is guarded to whoever is actually looking through this character's camera.
+	if (Delta >= 0.0f)
+	{
+		return;
+	}
+
+	if (IsLocallyControlled())
+	{
+		DamageFlashAlpha = 1.0f;
+		AddCameraShake(HurtShake);
+	}
+}
+
+void AMsCharacter::HandleDeath(AActor* DeadActor)
+{
+	if (bIsDead)
+	{
+		return;
+	}
+
+	bIsDead = true;
+
+	// Stop moving, stop colliding, stop being shootable. The actor stays alive so the camera
+	// rig and the Blueprint's setup survive - destroying and respawning the pawn would mean
+	// rebuilding all of it, and would break the reparented Blueprint's state.
+	SetActorEnableCollision(false);
+
+	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		Movement->StopMovementImmediately();
+		Movement->DisableMovement();
+	}
+
+	if (USkeletalMeshComponent* MeshComponent = GetMesh())
+	{
+		MeshComponent->SetHiddenInGame(true);
+	}
+
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		DisableInput(PC);
+	}
+
+	if (HasAuthority())
+	{
+		GetWorldTimerManager().SetTimer(RespawnTimer, this, &AMsCharacter::Respawn, RespawnDelay, false);
+	}
+}
+
+void AMsCharacter::Respawn()
+{
+	if (!HasAuthority())
+	{
+		return;
+	}
+
+	// Back to a player start rather than dying in place, so a respawn is not instantly
+	// swarmed by whatever just killed you.
+	if (AGameModeBase* GameMode = GetWorld()->GetAuthGameMode())
+	{
+		if (AActor* StartSpot = GameMode->FindPlayerStart(GetController()))
+		{
+			SetActorLocationAndRotation(StartSpot->GetActorLocation(), StartSpot->GetActorRotation());
+		}
+	}
+
+	if (HealthComponent)
+	{
+		HealthComponent->ResetHealth();
+	}
+
+	bIsDead = false;
+
+	SetActorEnableCollision(true);
+
+	if (UCharacterMovementComponent* Movement = GetCharacterMovement())
+	{
+		Movement->SetMovementMode(MOVE_Walking);
+	}
+
+	if (USkeletalMeshComponent* MeshComponent = GetMesh())
+	{
+		MeshComponent->SetHiddenInGame(false);
+	}
+
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		EnableInput(PC);
+	}
+
+	DamageFlashAlpha = 0.0f;
+	ShakeTrauma = 0.0f;
 }
 
 void AMsCharacter::AddCameraShake(float Trauma)

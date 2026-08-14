@@ -103,6 +103,8 @@ void AMsClankerBase::Tick(float DeltaSeconds)
 	Flat.Z = 0.0f;
 	DistanceToTarget = Flat.Size();
 
+	TryContactDamage(const_cast<APawn*>(TargetPlayer));
+
 	FVector DesiredDirection = ComputeMoveDirection(DeltaSeconds, TargetPlayer);
 
 	// Back off once we are on top of the player so clankers crowd around rather than shove.
@@ -156,6 +158,38 @@ void AMsClankerBase::Tick(float DeltaSeconds)
 	{
 		SnapToGround();
 	}
+}
+
+void AMsClankerBase::TryContactDamage(APawn* TargetPlayer)
+{
+	UWorld* World = GetWorld();
+	if (!World || !TargetPlayer || ContactDamage <= 0.0f)
+	{
+		return;
+	}
+
+	if (DistanceToTarget > StopDistance + ContactReach)
+	{
+		return;
+	}
+
+	// Vertical check as well as horizontal, or a hovering clanker would claw at someone far
+	// below it just because they line up on the ground plane.
+	const float HeightDifference = FMath::Abs(TargetPlayer->GetActorLocation().Z - GetActorLocation().Z);
+	if (HeightDifference > ContactHeightTolerance)
+	{
+		return;
+	}
+
+	const float Now = World->GetTimeSeconds();
+	if (Now < LastContactTime + ContactInterval)
+	{
+		return;
+	}
+	LastContactTime = Now;
+
+	// No instigator controller - clankers have no AIController, they steer themselves.
+	UGameplayStatics::ApplyDamage(TargetPlayer, ContactDamage, nullptr, this, nullptr);
 }
 
 void AMsClankerBase::SnapToGround()

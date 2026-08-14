@@ -2,6 +2,7 @@
 
 #include "Character/MsCharacter.h"
 #include "Combat/MsCombatTypes.h"
+#include "Combat/MsHealthComponent.h"
 #include "Engine/Canvas.h"
 #include "GameFramework/PlayerController.h"
 
@@ -10,6 +11,18 @@ void AMsHUD::DrawHUD()
 	Super::DrawHUD();
 
 	if (!Canvas)
+	{
+		return;
+	}
+
+	const AMsCharacter* OwnerCharacter = Cast<AMsCharacter>(GetOwningPawn());
+
+	// Flash first so it sits behind the rest of the HUD.
+	DrawDamageFlash(OwnerCharacter);
+	DrawHealthBar(OwnerCharacter);
+
+	// Dead players do not get a crosshair - there is nothing to aim.
+	if (OwnerCharacter && OwnerCharacter->IsDead())
 	{
 		return;
 	}
@@ -53,4 +66,56 @@ void AMsHUD::DrawHUD()
 	DrawRect(bSwordEquipped ? SwordDotColor : DotColor,
 		CentreX - Half, CentreY - Half,
 		DotSize, DotSize);
+}
+
+void AMsHUD::DrawHealthBar(const AMsCharacter* Character)
+{
+	if (!bShowHealthBar || !Character || !Canvas)
+	{
+		return;
+	}
+
+	const UMsHealthComponent* Health = Character->GetHealth();
+	if (!Health)
+	{
+		return;
+	}
+
+	const float Percent = FMath::Clamp(Health->GetHealthPercent(), 0.0f, 1.0f);
+
+	const float BarWidth = Canvas->ClipX * HealthBarWidthFraction;
+	const float BarX = (Canvas->ClipX - BarWidth) * 0.5f;
+	const float BarY = Canvas->ClipY - HealthBarBottomMargin - HealthBarHeight;
+
+	// Backing plate, slightly oversized, so the bar reads against any background.
+	const float Padding = 2.0f;
+	DrawRect(HealthBarBackColor,
+		BarX - Padding, BarY - Padding,
+		BarWidth + Padding * 2.0f, HealthBarHeight + Padding * 2.0f);
+
+	if (Percent > 0.0f)
+	{
+		// Green through to red as it drains, so low health is legible peripherally - you
+		// should never have to look directly at the bar to know you are in trouble.
+		const FLinearColor FillColor = FMath::Lerp(HealthLowColor, HealthHighColor, Percent);
+		DrawRect(FillColor, BarX, BarY, BarWidth * Percent, HealthBarHeight);
+	}
+}
+
+void AMsHUD::DrawDamageFlash(const AMsCharacter* Character)
+{
+	if (!Character || !Canvas)
+	{
+		return;
+	}
+
+	const float Flash = Character->GetDamageFlash();
+	if (Flash <= KINDA_SMALL_NUMBER)
+	{
+		return;
+	}
+
+	// Squared so the flash spikes and drops away fast rather than lingering as a red haze.
+	const float Alpha = Flash * Flash * DamageFlashOpacity;
+	DrawRect(FLinearColor(0.7f, 0.0f, 0.0f, Alpha), 0.0f, 0.0f, Canvas->ClipX, Canvas->ClipY);
 }

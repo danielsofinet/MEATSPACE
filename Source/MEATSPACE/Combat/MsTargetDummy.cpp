@@ -4,13 +4,16 @@
 #include "Engine/Engine.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
+#include "GameFramework/Pawn.h"
+#include "Kismet/GameplayStatics.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
 #include "UObject/ConstructorHelpers.h"
 
 AMsTargetDummy::AMsTargetDummy()
 {
-	PrimaryActorTick.bCanEverTick = false;
+	// Ticks only to chase; the tick early-outs when bChasePlayer is off.
+	PrimaryActorTick.bCanEverTick = true;
 
 	bReplicates = true;
 	SetReplicateMovement(true);
@@ -35,6 +38,42 @@ void AMsTargetDummy::BeginPlay()
 	Super::BeginPlay();
 
 	Health = MaxHealth;
+}
+
+void AMsTargetDummy::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	// Movement is a server decision; clients receive it through replicated movement.
+	if (!bChasePlayer || !HasAuthority() || Health <= 0.0f)
+	{
+		return;
+	}
+
+	const APawn* Player = UGameplayStatics::GetPlayerPawn(this, 0);
+	if (!Player)
+	{
+		return;
+	}
+
+	FVector ToPlayer = Player->GetActorLocation() - GetActorLocation();
+	ToPlayer.Z = 0.0f;
+
+	if (ToPlayer.Size() <= ChaseStopDistance)
+	{
+		return;
+	}
+
+	const FVector Step = ToPlayer.GetSafeNormal() * ChaseSpeed * DeltaSeconds;
+
+	FHitResult Hit;
+	AddActorWorldOffset(Step, /*bSweep=*/true, &Hit);
+
+	// Slide along obstacles rather than sticking to them.
+	if (Hit.bBlockingHit)
+	{
+		AddActorWorldOffset(FVector::VectorPlaneProject(Step, Hit.Normal), /*bSweep=*/true);
+	}
 }
 
 void AMsTargetDummy::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const

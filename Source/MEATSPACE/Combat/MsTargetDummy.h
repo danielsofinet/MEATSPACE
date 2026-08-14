@@ -23,8 +23,24 @@ public:
 	virtual float TakeDamage(float DamageAmount, const FDamageEvent& DamageEvent,
 		AController* EventInstigator, AActor* DamageCauser) override;
 
+	virtual void Tick(float DeltaSeconds) override;
+
 protected:
 	virtual void BeginPlay() override;
+
+	/**
+	 * Tick this on to turn a static cube into a moving one. Handy for testing whether the
+	 * sword and gun feel different against something that will not hold still.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Target|Movement")
+	bool bChasePlayer = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Target|Movement", meta = (ClampMin = "0.0"))
+	float ChaseSpeed = 220.0f;
+
+	/** Stops closing once this near the player. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Target|Movement", meta = (ClampMin = "0.0"))
+	float ChaseStopDistance = 130.0f;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Meatspace|Target")

@@ -54,19 +54,28 @@ const FMsSwingStep& UMsMeleeComponent::GetCurrentStep() const
 void UMsMeleeComponent::StartSwing()
 {
 	const UWorld* World = GetWorld();
-	if (!World)
+	const AActor* Owner = GetOwner();
+	if (!World || !Owner)
 	{
 		return;
 	}
+
+	// On a listen-server host we ARE the authority, so BeginSwing below is already the
+	// authoritative swing. Calling ServerSwing as well would execute inline, see a swing
+	// already in progress, and queue the next combo step off a single click.
+	const bool bHasAuthority = Owner->HasAuthority();
 
 	if (IsSwinging())
 	{
 		// Mid-swing click: queue the next link in the chain rather than dropping the input.
 		bComboQueued = true;
 
-		// The server has to hear about queued clicks too, or its copy finishes the current
-		// swing and stops while the client carries on into the next link.
-		ServerSwing(static_cast<uint8>(ComboIndex + 1));
+		// A remote client must tell the server about queued clicks too, or the server's copy
+		// finishes the current swing and stops while the client carries on into the next link.
+		if (!bHasAuthority)
+		{
+			ServerSwing(static_cast<uint8>(ComboIndex + 1));
+		}
 		return;
 	}
 
@@ -75,7 +84,11 @@ void UMsMeleeComponent::StartSwing()
 	const int32 NextIndex = bChainAlive ? ComboIndex : 0;
 
 	BeginSwing(NextIndex);
-	ServerSwing(static_cast<uint8>(NextIndex));
+
+	if (!bHasAuthority)
+	{
+		ServerSwing(static_cast<uint8>(NextIndex));
+	}
 }
 
 void UMsMeleeComponent::ServerSwing_Implementation(uint8 StepIndex)

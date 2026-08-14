@@ -230,20 +230,24 @@ void AMsCharacter::TickCameraTuning(float DeltaSeconds)
 	}
 
 	// Aim-zoom tuning. Hold right mouse while adjusting to see it applied live.
-	if (PC->IsInputKeyDown(EKeys::LeftBracket))
+	//
+	// Letters only. Punctuation keys sit in different physical places across keyboard
+	// layouts - on Swedish QWERTY the US bracket and quote keys are Å, ¨, Ö and Ä - whereas
+	// letter keys are in the same place everywhere.
+	if (PC->IsInputKeyDown(EKeys::G))
 	{
 		AimFOVMultiplier = FMath::Clamp(AimFOVMultiplier - 0.35f * DeltaSeconds, 0.1f, 2.0f);
 	}
-	if (PC->IsInputKeyDown(EKeys::RightBracket))
+	if (PC->IsInputKeyDown(EKeys::H))
 	{
 		AimFOVMultiplier = FMath::Clamp(AimFOVMultiplier + 0.35f * DeltaSeconds, 0.1f, 2.0f);
 	}
 
-	if (PC->IsInputKeyDown(EKeys::Semicolon))
+	if (PC->IsInputKeyDown(EKeys::V))
 	{
 		AimDistanceMultiplier = FMath::Clamp(AimDistanceMultiplier - 0.35f * DeltaSeconds, 0.1f, 2.0f);
 	}
-	if (PC->IsInputKeyDown(EKeys::Quote))
+	if (PC->IsInputKeyDown(EKeys::B))
 	{
 		AimDistanceMultiplier = FMath::Clamp(AimDistanceMultiplier + 0.35f * DeltaSeconds, 0.1f, 2.0f);
 	}
@@ -433,7 +437,7 @@ void AMsCharacter::ShowCameraReadout() const
 	GEngine->AddOnScreenDebugMessage(9005, 0.0f, FColor::Yellow,
 		FString::Printf(TEXT("PEEK   %.2f      [N less / M more]"), MousePeekStrength));
 	GEngine->AddOnScreenDebugMessage(9007, 0.0f, IsAiming() ? FColor::Cyan : FColor::Silver,
-		FString::Printf(TEXT("ADS FOVx %.2f  [ [ / ] ]      DISTx %.2f  [ ; / ' ]%s"),
+		FString::Printf(TEXT("ADS FOVx %.2f  [G less / H more]   DISTx %.2f  [V less / B more]%s"),
 			AimFOVMultiplier, AimDistanceMultiplier, IsAiming() ? TEXT("   << AIMING") : TEXT("")));
 	GEngine->AddOnScreenDebugMessage(9006, 0.0f, FColor::Green,
 		TEXT("--- CAMERA TUNING (P to hide) ---"));

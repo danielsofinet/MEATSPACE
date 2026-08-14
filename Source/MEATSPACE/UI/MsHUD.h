@@ -88,4 +88,34 @@ protected:
 
 	void DrawHealthBar(const class AMsCharacter* Character);
 	void DrawDamageFlash(const class AMsCharacter* Character);
+
+	// --- Story layer. Placeholder rendering; becomes UMG once the HUD is designed. ---
+
+	/** Objective line across the top. */
+	void DrawObjective();
+
+	/** "E  Talk" prompt when standing near something interactable. */
+	void DrawInteractionPrompt(const class AMsCharacter* Character);
+
+	/** Speaker name and current line while in conversation. */
+	void DrawDialogue(const class AMsCharacter* Character);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Story")
+	FLinearColor ObjectiveColor = FLinearColor(1.0f, 0.92f, 0.6f, 0.95f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Story")
+	FLinearColor PromptColor = FLinearColor(1.0f, 1.0f, 1.0f, 0.95f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Story")
+	FLinearColor DialogueBackColor = FLinearColor(0.02f, 0.02f, 0.04f, 0.85f);
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Story")
+	FLinearColor SpeakerColor = FLinearColor(0.45f, 0.85f, 1.0f, 1.0f);
+
+	/** Height of the dialogue panel as a fraction of screen height. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Story", meta = (ClampMin = "0.05", ClampMax = "0.6"))
+	float DialogueHeightFraction = 0.2f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Story", meta = (ClampMin = "0.5"))
+	float StoryTextScale = 1.4f;
 };

@@ -16,6 +16,8 @@
 #include "InputCoreTypes.h"
 #include "Net/UnrealNetwork.h"
 #include "TimerManager.h"
+#include "World/MsInteractable.h"
+#include "World/MsNpc.h"
 
 namespace
 {
@@ -60,9 +62,24 @@ void AMsCharacter::BeginPlay()
 {
 	Super::BeginPlay();
 
+	bSwordUnlocked = bStartWithSword;
+	bGunUnlocked = bStartWithGun;
+
 	if (HasAuthority())
 	{
-		ActiveSlot = StartingSlot;
+		// Never start holding a weapon we do not have.
+		if (IsWeaponUnlocked(StartingSlot))
+		{
+			ActiveSlot = StartingSlot;
+		}
+		else if (bSwordUnlocked)
+		{
+			ActiveSlot = EMsWeaponSlot::Sword;
+		}
+		else if (bGunUnlocked)
+		{
+			ActiveSlot = EMsWeaponSlot::Gun;
+		}
 	}
 
 	// The boom and camera live on the Blueprint (they came from the Third Person template),
@@ -283,6 +300,8 @@ void AMsCharacter::Tick(float DeltaSeconds)
 	{
 		DamageFlashAlpha = FMath::Max(0.0f, DamageFlashAlpha - DeltaSeconds / FMath::Max(DamageFlashDuration, 0.05f));
 	}
+
+	UpdateFocusedInteractable();
 
 	TickMouseLook(DeltaSeconds);
 	TickCameraTuning(DeltaSeconds);
@@ -683,6 +702,7 @@ void AMsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 	PlayerInputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &AMsCharacter::OnCycleWeapon);
 
 	PlayerInputComponent->BindKey(EKeys::G, IE_Pressed, this, &AMsCharacter::OnThrowGrenade);
+	PlayerInputComponent->BindKey(EKeys::E, IE_Pressed, this, &AMsCharacter::OnInteract);
 
 	PlayerInputComponent->BindKey(EKeys::P, IE_Pressed, this, &AMsCharacter::OnToggleTuning);
 }
@@ -712,8 +732,101 @@ void AMsCharacter::OnThrowGrenade()
 	}
 }
 
+bool AMsCharacter::IsWeaponUnlocked(EMsWeaponSlot Slot) const
+{
+	return Slot == EMsWeaponSlot::Sword ? bSwordUnlocked : bGunUnlocked;
+}
+
+void AMsCharacter::UnlockWeapon(EMsWeaponSlot Slot, bool bEquipImmediately)
+{
+	if (Slot == EMsWeaponSlot::Sword)
+	{
+		bSwordUnlocked = true;
+	}
+	else
+	{
+		bGunUnlocked = true;
+	}
+
+	// Equip it if asked, or if it is the only thing we own - being handed a sword and still
+	// holding nothing would be a strange moment.
+	if (bEquipImmediately || ActiveSlot == Slot || !IsWeaponUnlocked(ActiveSlot))
+	{
+		EquipSlot(Slot);
+	}
+
+	ShowWeaponFeedback();
+}
+
+void AMsCharacter::BeginDialogue(AMsNpc* Npc)
+{
+	ActiveDialogue = Npc;
+
+	// Stop any attack in progress - talking to grandpa while spraying gunfire would be a look.
+	if (Weapon)
+	{
+		Weapon->StopFire();
+	}
+}
+
+void AMsCharacter::EndDialogue()
+{
+	ActiveDialogue = nullptr;
+}
+
+void AMsCharacter::UpdateFocusedInteractable()
+{
+	FocusedInteractable = nullptr;
+
+	const FVector MyLocation = GetActorLocation();
+	float BestDistanceSq = FMath::Square(InteractSearchRadius);
+
+	for (const TWeakObjectPtr<AMsInteractable>& Entry : AMsInteractable::GetAllInteractables())
+	{
+		AMsInteractable* Candidate = Entry.Get();
+		if (!Candidate || !Candidate->CanInteract())
+		{
+			continue;
+		}
+
+		const float DistanceSq = FVector::DistSquared(Candidate->GetActorLocation(), MyLocation);
+
+		// Each interactable declares its own reach, so a big object can be talked to from
+		// further away than a small one.
+		const float ReachSq = FMath::Square(FMath::Min(Candidate->GetInteractRadius(), InteractSearchRadius));
+		if (DistanceSq > ReachSq || DistanceSq > BestDistanceSq)
+		{
+			continue;
+		}
+
+		BestDistanceSq = DistanceSq;
+		FocusedInteractable = Candidate;
+	}
+}
+
+void AMsCharacter::OnInteract()
+{
+	// Mid-conversation, the interact key advances the dialogue rather than starting a new one.
+	if (ActiveDialogue)
+	{
+		ActiveDialogue->Interact(this);
+		return;
+	}
+
+	if (FocusedInteractable)
+	{
+		FocusedInteractable->Interact(this);
+	}
+}
+
 void AMsCharacter::OnAttackPressed()
 {
+	// No weapon, or busy talking. Both should silently do nothing rather than swing at air.
+	if (!HasAnyWeapon() || ActiveDialogue)
+	{
+		return;
+	}
+
 	switch (ActiveSlot)
 	{
 	case EMsWeaponSlot::Sword:
@@ -754,7 +867,7 @@ void AMsCharacter::OnSelectGun()
 
 void AMsCharacter::EquipSlot(EMsWeaponSlot NewSlot)
 {
-	if (ActiveSlot == NewSlot)
+	if (ActiveSlot == NewSlot || !IsWeaponUnlocked(NewSlot))
 	{
 		return;
 	}

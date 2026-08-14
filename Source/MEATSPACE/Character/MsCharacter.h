@@ -69,9 +69,32 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
 	EMsWeaponSlot GetActiveSlot() const { return ActiveSlot; }
 
-	/** Swap weapons. Safe to call on client - replicates to the server. */
+	/** Swap weapons. Safe to call on client - replicates to the server. Refuses locked slots. */
 	UFUNCTION(BlueprintCallable, Category = "Meatspace|Combat")
 	void EquipSlot(EMsWeaponSlot NewSlot);
+
+	/** Grants a weapon. Grandpa's sword goes through here. */
+	UFUNCTION(BlueprintCallable, Category = "Meatspace|Combat")
+	void UnlockWeapon(EMsWeaponSlot Slot, bool bEquipImmediately);
+
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
+	bool IsWeaponUnlocked(EMsWeaponSlot Slot) const;
+
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
+	bool HasAnyWeapon() const { return bSwordUnlocked || bGunUnlocked; }
+
+	// --- Dialogue ---
+
+	/** Called by an NPC when a conversation starts. Locks out attacking while talking. */
+	void BeginDialogue(class AMsNpc* Npc);
+	void EndDialogue();
+
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Dialogue")
+	class AMsNpc* GetActiveDialogue() const { return ActiveDialogue; }
+
+	/** Nearest thing the player could interact with right now, for the HUD prompt. */
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Interaction")
+	class AMsInteractable* GetFocusedInteractable() const { return FocusedInteractable; }
 
 	/** World point under the reticle, found by tracing the deprojected reticle ray. */
 	UFUNCTION(BlueprintCallable, Category = "Meatspace|Aim")
@@ -149,6 +172,23 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Combat")
 	EMsWeaponSlot StartingSlot = EMsWeaponSlot::Gun;
+
+	/**
+	 * Whether the player begins armed.
+	 *
+	 * Both default to true so the sandbox level keeps working. The onboarding level wants
+	 * BOTH set to false - the story is that grandpa hands you the sword, so you must start
+	 * with nothing for that to mean anything.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Combat")
+	bool bStartWithSword = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Combat")
+	bool bStartWithGun = true;
+
+	/** How far the player can reach to interact. Overridden by an interactable's own radius. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Interaction", meta = (ClampMin = "10.0"))
+	float InteractSearchRadius = 400.0f;
 
 	// --- Camera rig ---
 
@@ -369,6 +409,19 @@ private:
 	void OnSelectGun();
 	void OnToggleTuning();
 	void OnThrowGrenade();
+	void OnInteract();
+
+	/** Finds the nearest interactable in range each frame, for the prompt. */
+	void UpdateFocusedInteractable();
+
+	bool bSwordUnlocked = true;
+	bool bGunUnlocked = true;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class AMsNpc> ActiveDialogue;
+
+	UPROPERTY(Transient)
+	TObjectPtr<class AMsInteractable> FocusedInteractable;
 
 	/** Scroll cycles between the two weapons. */
 	void OnCycleWeapon();

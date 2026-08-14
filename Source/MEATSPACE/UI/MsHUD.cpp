@@ -5,7 +5,11 @@
 #include "Combat/MsGrenadeComponent.h"
 #include "Combat/MsHealthComponent.h"
 #include "Engine/Canvas.h"
+#include "Engine/World.h"
+#include "Game/MsObjectiveSubsystem.h"
 #include "GameFramework/PlayerController.h"
+#include "World/MsInteractable.h"
+#include "World/MsNpc.h"
 
 void AMsHUD::DrawHUD()
 {
@@ -21,9 +25,19 @@ void AMsHUD::DrawHUD()
 	// Flash first so it sits behind the rest of the HUD.
 	DrawDamageFlash(OwnerCharacter);
 	DrawHealthBar(OwnerCharacter);
+	DrawObjective();
+	DrawInteractionPrompt(OwnerCharacter);
+	DrawDialogue(OwnerCharacter);
 
 	// Dead players do not get a crosshair - there is nothing to aim.
 	if (OwnerCharacter && OwnerCharacter->IsDead())
+	{
+		return;
+	}
+
+	// Neither do unarmed ones, or players mid-conversation. A crosshair implies you can
+	// shoot, and in both cases you cannot.
+	if (OwnerCharacter && (!OwnerCharacter->HasAnyWeapon() || OwnerCharacter->GetActiveDialogue()))
 	{
 		return;
 	}
@@ -142,6 +156,99 @@ void AMsHUD::DrawHealthBar(const AMsCharacter* Character)
 			DrawRect(ShieldColor, BarX, ShieldY, BarWidth * ShieldPercent, ShieldBarHeight);
 		}
 	}
+}
+
+void AMsHUD::DrawObjective()
+{
+	UWorld* World = GetWorld();
+	if (!Canvas || !World)
+	{
+		return;
+	}
+
+	const UMsObjectiveSubsystem* Objectives = World->GetSubsystem<UMsObjectiveSubsystem>();
+	if (!Objectives || !Objectives->HasObjective())
+	{
+		return;
+	}
+
+	// FText is the source of truth; ToString happens only at the point of rendering. Anything
+	// that stores or passes the text around keeps it as FText so it stays translatable.
+	const FString Text = Objectives->GetObjectiveText().ToString();
+
+	float TextWidth = 0.0f;
+	float TextHeight = 0.0f;
+	GetTextSize(Text, TextWidth, TextHeight, nullptr, StoryTextScale);
+
+	DrawText(Text, ObjectiveColor,
+		(Canvas->ClipX - TextWidth) * 0.5f, Canvas->ClipY * 0.06f,
+		nullptr, StoryTextScale);
+}
+
+void AMsHUD::DrawInteractionPrompt(const AMsCharacter* Character)
+{
+	if (!Canvas || !Character || Character->GetActiveDialogue())
+	{
+		return;
+	}
+
+	const AMsInteractable* Interactable = Character->GetFocusedInteractable();
+	if (!Interactable)
+	{
+		return;
+	}
+
+	// The key is not translated; the verb is. Formatting them together rather than
+	// concatenating keeps word order translatable - some languages put the verb first.
+	const FText Prompt = FText::Format(
+		NSLOCTEXT("Meatspace.Interaction", "InteractPromptFormat", "[E]  {Action}"),
+		Interactable->GetPrompt());
+
+	const FString Text = Prompt.ToString();
+
+	float TextWidth = 0.0f;
+	float TextHeight = 0.0f;
+	GetTextSize(Text, TextWidth, TextHeight, nullptr, StoryTextScale);
+
+	DrawText(Text, PromptColor,
+		(Canvas->ClipX - TextWidth) * 0.5f, Canvas->ClipY * 0.62f,
+		nullptr, StoryTextScale);
+}
+
+void AMsHUD::DrawDialogue(const AMsCharacter* Character)
+{
+	if (!Canvas || !Character)
+	{
+		return;
+	}
+
+	const AMsNpc* Npc = Character->GetActiveDialogue();
+	if (!Npc || !Npc->IsTalking())
+	{
+		return;
+	}
+
+	const float PanelHeight = Canvas->ClipY * DialogueHeightFraction;
+	const float PanelY = Canvas->ClipY - PanelHeight;
+	const float Margin = Canvas->ClipX * 0.08f;
+
+	DrawRect(DialogueBackColor, 0.0f, PanelY, Canvas->ClipX, PanelHeight);
+
+	DrawText(Npc->GetSpeakerName().ToString(), SpeakerColor,
+		Margin, PanelY + PanelHeight * 0.18f, nullptr, StoryTextScale);
+
+	DrawText(Npc->GetCurrentLine().ToString(), PromptColor,
+		Margin, PanelY + PanelHeight * 0.45f, nullptr, StoryTextScale);
+
+	const FString Continue = NSLOCTEXT("Meatspace.Dialogue", "ContinuePrompt", "[E]  Continue").ToString();
+
+	float TextWidth = 0.0f;
+	float TextHeight = 0.0f;
+	GetTextSize(Continue, TextWidth, TextHeight, nullptr, StoryTextScale * 0.8f);
+
+	DrawText(Continue, FLinearColor(0.7f, 0.7f, 0.75f, 0.9f),
+		Canvas->ClipX - Margin - TextWidth, PanelY + PanelHeight * 0.75f,
+		nullptr, StoryTextScale * 0.8f);
 }
 
 void AMsHUD::DrawDamageFlash(const AMsCharacter* Character)

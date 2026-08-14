@@ -129,15 +129,23 @@ void AMsCharacter::ApplyCameraSettings()
 	const float TargetFOV = IsAiming() ? CameraFOV * AimFOVMultiplier : CameraFOV;
 	const float TargetDistance = IsAiming() ? CameraDistance * AimDistanceMultiplier : CameraDistance;
 
-	if (CurrentFOV <= 0.0f || CurrentDistance <= 0.0f)
+	// The reticle moves between its hip and aim positions on the SAME easing as the zoom.
+	// Snapping it instantly is what made the crosshair appear to jump ahead of the transition.
+	const FVector2D TargetCrosshair = IsAiming() ? AimCrosshairOffset : HipCrosshairOffset;
+
+	if (CurrentFOV <= 0.0f || CurrentDistance <= 0.0f || !bCrosshairInitialised)
 	{
 		CurrentFOV = TargetFOV;
 		CurrentDistance = TargetDistance;
+		CurrentCrosshairOffset = TargetCrosshair;
+		bCrosshairInitialised = true;
 	}
 	else
 	{
 		CurrentFOV = FMath::FInterpTo(CurrentFOV, TargetFOV, DeltaSeconds, AimTransitionSpeed);
 		CurrentDistance = FMath::FInterpTo(CurrentDistance, TargetDistance, DeltaSeconds, AimTransitionSpeed);
+		CurrentCrosshairOffset = FMath::Vector2DInterpTo(
+			CurrentCrosshairOffset, TargetCrosshair, DeltaSeconds, AimTransitionSpeed);
 	}
 
 	if (CachedCameraBoom)

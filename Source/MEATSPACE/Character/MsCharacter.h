@@ -60,9 +60,15 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Aim")
 	float GetAimSpreadMultiplier() const { return IsAiming() ? AimSpreadMultiplier : 1.0f; }
 
-	/** Reticle position, as a fraction of half the screen from centre. X right, Y down. */
+	/**
+	 * Reticle position actually in force this frame, as a fraction of half the screen.
+	 * X right, Y down.
+	 *
+	 * This is the SMOOTHED value, not the raw hip/aim setting. Both the HUD and the aim trace
+	 * read it, so the crosshair and the shot stay in lockstep even mid-transition.
+	 */
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Aim")
-	FVector2D GetCrosshairScreenOffset() const { return IsAiming() ? AimCrosshairOffset : HipCrosshairOffset; }
+	FVector2D GetCrosshairScreenOffset() const { return CurrentCrosshairOffset; }
 
 	/** Adds decaying trauma to the camera. Repeated hits stack into a bigger jolt. */
 	UFUNCTION(BlueprintCallable, Category = "Meatspace|Camera")
@@ -167,7 +173,7 @@ protected:
 
 	/** Dullness while aiming. Lower than hipfire - precision wants a rigid camera. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float AimCameraDullness = 0.80f;
+	float AimCameraDullness = 0.30f;
 
 	/** How fast the character's body swings round to face where the camera looks. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.1"))
@@ -184,7 +190,7 @@ protected:
 
 	/** Reticle position while aiming. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Reticle")
-	FVector2D AimCrosshairOffset = FVector2D(-0.298f, -0.120f);
+	FVector2D AimCrosshairOffset = FVector2D(-0.040f, -0.120f);
 
 	/** Camera shoulder shift while NOT aiming. X forward, Y right, Z up. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Reticle")
@@ -313,6 +319,10 @@ private:
 
 	float CurrentFOV = 0.0f;
 	float CurrentDistance = 0.0f;
+
+	/** Eased reticle position, so it travels with the zoom instead of teleporting. */
+	FVector2D CurrentCrosshairOffset = FVector2D::ZeroVector;
+	bool bCrosshairInitialised = false;
 
 	float ShakeTrauma = 0.0f;
 	float SwayTime = 0.0f;

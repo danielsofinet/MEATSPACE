@@ -234,13 +234,27 @@ void AMsCharacter::TickMouseLook(float DeltaSeconds)
 	const float YawDelta = FRotator::NormalizeAxis(ControlRotation.Yaw - LastControlYaw);
 	const float PitchDelta = FRotator::NormalizeAxis(ControlRotation.Pitch) - LastControlPitch;
 
-	const float ActiveYawSensitivity = IsAiming() ? AimYawSensitivity : YawSensitivity;
+	float ActiveYawSensitivity = IsAiming() ? AimYawSensitivity : YawSensitivity;
+	float ActivePitchSensitivity = IsAiming() ? AimPitchSensitivity : PitchSensitivity;
+
+	// Narrower FOV means the same mouse movement sweeps more world across the screen. Scaling
+	// by the FOV ratio keeps the on-screen movement consistent at any zoom level, rather than
+	// the camera becoming twitchy the moment you aim.
+	if (bScaleSensitivityWithFOV && CameraFOV > KINDA_SMALL_NUMBER && CurrentFOV > 0.0f)
+	{
+		const float FOVRatio = FMath::Clamp(CurrentFOV / CameraFOV, 0.05f, 1.0f);
+		const float Scale = FMath::Lerp(1.0f, FOVRatio, FMath::Clamp(FOVSensitivityStrength, 0.0f, 1.0f));
+
+		ActiveYawSensitivity *= Scale;
+		ActivePitchSensitivity *= Scale;
+	}
+
 	DesiredCameraYaw = FRotator::NormalizeAxis(DesiredCameraYaw + YawDelta * ActiveYawSensitivity);
 
 	// Control pitch goes negative looking down; our CameraPitch goes positive.
 	const float MinPitch = FMath::Min(PitchMin, PitchMax);
 	const float MaxPitch = FMath::Max(PitchMin, PitchMax);
-	DesiredCameraPitch = FMath::Clamp(DesiredCameraPitch - PitchDelta * PitchSensitivity, MinPitch, MaxPitch);
+	DesiredCameraPitch = FMath::Clamp(DesiredCameraPitch - PitchDelta * ActivePitchSensitivity, MinPitch, MaxPitch);
 
 	// Write the clamped result back so control rotation never drifts away from the camera,
 	// and so next frame's delta is purely new mouse movement.

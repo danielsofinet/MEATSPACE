@@ -209,12 +209,38 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.05"))
 	float YawSensitivity = 1.0f;
 
+	/** Extra horizontal multiplier while aiming, applied on top of the FOV scaling below. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.05"))
-	float AimYawSensitivity = 1.15f;
+	float AimYawSensitivity = 1.0f;
 
 	/** Vertical is more sensitive than horizontal at the same raw input, so scale it down. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.05"))
 	float PitchSensitivity = 0.7f;
+
+	/** Extra vertical multiplier while aiming. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.05"))
+	float AimPitchSensitivity = 1.0f;
+
+	/**
+	 * Scale sensitivity by how far the camera is zoomed in.
+	 *
+	 * Zooming to a narrow FOV means the same mouse movement sweeps far more world across the
+	 * screen, so a sensitivity that felt right at hipfire becomes uncontrollable while aiming.
+	 * Scaling by the FOV ratio keeps the movement ON SCREEN consistent at any zoom, which is
+	 * why every shooter does this rather than exposing a raw ADS multiplier alone.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look")
+	bool bScaleSensitivityWithFOV = true;
+
+	/**
+	 * How much of the FOV scaling to apply. 0 disables it, 1 is fully proportional.
+	 *
+	 * Fully proportional is technically "correct" but often feels sluggish, because you
+	 * usually want to track targets slightly faster than the pure ratio implies. Partial is
+	 * the usual compromise.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float FOVSensitivityStrength = 0.75f;
 
 	/**
 	 * How sluggishly the camera catches up to the mouse. 0 is instant and rigid, 1 is heavy

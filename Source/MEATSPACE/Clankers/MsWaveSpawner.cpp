@@ -20,10 +20,14 @@ AMsWaveSpawner::AMsWaveSpawner()
 	Small.Weight = 3.0f;
 	Small.FirstWave = 1;
 
+	// Flyers arrive later, rarer, and capped. They hover out of sword reach and shoot, so
+	// without a ceiling they accumulate across waves into a wall of chip damage no amount of
+	// ground clearing removes.
 	FMsSpawnEntry Flyer;
 	Flyer.ClankerClass = AMsClankerFlyer::StaticClass();
-	Flyer.Weight = 1.0f;
-	Flyer.FirstWave = 2;
+	Flyer.Weight = 0.6f;
+	Flyer.FirstWave = 3;
+	Flyer.MaxAlive = 3;
 
 	SpawnTable = { Small, Flyer };
 }
@@ -111,13 +115,50 @@ APawn* AMsWaveSpawner::FindPlayer() const
 	return UGameplayStatics::GetPlayerPawn(this, 0);
 }
 
+int32 AMsWaveSpawner::CountAliveOfClass(TSubclassOf<AMsClankerBase> ClankerClass) const
+{
+	if (!ClankerClass)
+	{
+		return 0;
+	}
+
+	int32 Count = 0;
+	for (const TWeakObjectPtr<AMsClankerBase>& Entry : AliveClankers)
+	{
+		if (const AMsClankerBase* Clanker = Entry.Get())
+		{
+			if (Clanker->GetClass() == ClankerClass)
+			{
+				++Count;
+			}
+		}
+	}
+
+	return Count;
+}
+
 TSubclassOf<AMsClankerBase> AMsWaveSpawner::PickClankerClass() const
 {
-	// Weighted pick among entries unlocked by the current wave.
+	// An entry is eligible if it is unlocked by the current wave AND under its own live cap.
+	auto IsEligible = [this](const FMsSpawnEntry& Entry)
+	{
+		if (!Entry.ClankerClass || Entry.Weight <= 0.0f || CurrentWave < Entry.FirstWave)
+		{
+			return false;
+		}
+
+		if (Entry.MaxAlive > 0 && CountAliveOfClass(Entry.ClankerClass) >= Entry.MaxAlive)
+		{
+			return false;
+		}
+
+		return true;
+	};
+
 	float TotalWeight = 0.0f;
 	for (const FMsSpawnEntry& Entry : SpawnTable)
 	{
-		if (Entry.ClankerClass && Entry.Weight > 0.0f && CurrentWave >= Entry.FirstWave)
+		if (IsEligible(Entry))
 		{
 			TotalWeight += Entry.Weight;
 		}
@@ -131,7 +172,7 @@ TSubclassOf<AMsClankerBase> AMsWaveSpawner::PickClankerClass() const
 	float Roll = FMath::FRandRange(0.0f, TotalWeight);
 	for (const FMsSpawnEntry& Entry : SpawnTable)
 	{
-		if (!Entry.ClankerClass || Entry.Weight <= 0.0f || CurrentWave < Entry.FirstWave)
+		if (!IsEligible(Entry))
 		{
 			continue;
 		}

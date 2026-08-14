@@ -16,9 +16,9 @@ void AMsHUD::DrawHUD()
 
 	// Which weapon is out decides the colour, and whether we draw at all.
 	bool bSwordEquipped = false;
-	if (const AMsCharacter* Character = Cast<AMsCharacter>(GetOwningPawn()))
+	if (const AMsCharacter* EquippedCheck = Cast<AMsCharacter>(GetOwningPawn()))
 	{
-		bSwordEquipped = (Character->GetActiveSlot() == EMsWeaponSlot::Sword);
+		bSwordEquipped = (EquippedCheck->GetActiveSlot() == EMsWeaponSlot::Sword);
 	}
 
 	if (bSwordEquipped && !bShowWithSword)
@@ -26,20 +26,35 @@ void AMsHUD::DrawHUD()
 		return;
 	}
 
-	// Under the forced-perspective rig, aiming is cursor-driven - screen centre is the ground
-	// at the player's feet. So the marker follows the mouse, which is where shots actually go.
+	// Two aiming schemes, two reticle positions:
+	//   cursor modes - the marker follows the mouse, which is the aiming device
+	//   orbit / ADS  - fixed position, offset from centre by the character's setting
+	// Either way this must match the point ComputeAimPoint deprojects through, or the
+	// crosshair would lie about where shots land.
 	float CentreX = Canvas->ClipX * 0.5f;
 	float CentreY = Canvas->ClipY * 0.5f;
 
-	if (const APlayerController* PC = GetOwningPlayerController())
+	const AMsCharacter* Character = Cast<AMsCharacter>(GetOwningPawn());
+	const bool bCursorAim = !Character || Character->UsesCursorAim();
+
+	if (bCursorAim)
 	{
-		float MouseX = 0.0f;
-		float MouseY = 0.0f;
-		if (PC->GetMousePosition(MouseX, MouseY))
+		if (const APlayerController* PC = GetOwningPlayerController())
 		{
-			CentreX = MouseX;
-			CentreY = MouseY;
+			float MouseX = 0.0f;
+			float MouseY = 0.0f;
+			if (PC->GetMousePosition(MouseX, MouseY))
+			{
+				CentreX = MouseX;
+				CentreY = MouseY;
+			}
 		}
+	}
+	else
+	{
+		const FVector2D Offset = Character->GetCrosshairScreenOffset();
+		CentreX += Offset.X * Canvas->ClipX * 0.5f;
+		CentreY += Offset.Y * Canvas->ClipY * 0.5f;
 	}
 
 	const float Half = DotSize * 0.5f;

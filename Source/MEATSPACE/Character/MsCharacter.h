@@ -104,6 +104,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Aim")
 	bool UsesCursorAim() const { return GetEffectiveCameraMode() != EMsCameraMode::Orbit; }
 
+	/**
+	 * Reticle offset the HUD should draw at, in the same units as AimCrosshairOffset.
+	 * Zero unless we are in a centre-aiming mode.
+	 */
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Aim")
+	FVector2D GetCrosshairScreenOffset() const
+	{
+		return UsesCursorAim() ? FVector2D::ZeroVector : AimCrosshairOffset;
+	}
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
@@ -183,7 +193,7 @@ protected:
 
 	/** Horizontal turn multiplier while aiming. Above 1 so ADS swings around faster. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Orbit", meta = (ClampMin = "0.05"))
-	float AimYawSensitivity = 1.7f;
+	float AimYawSensitivity = 1.15f;
 
 	/** Vertical multiplier. Usually lower than horizontal - vertical tilt is more sensitive. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Orbit", meta = (ClampMin = "0.05"))
@@ -305,6 +315,29 @@ protected:
 	/** Weapon spread is multiplied by this while aiming. Aiming should reward you. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float AimSpreadMultiplier = 0.25f;
+
+	/**
+	 * Where the reticle sits while aiming, as a fraction of half the screen from centre.
+	 * X positive is right, Y positive is DOWN (screen convention).
+	 *
+	 * The aim ray is deprojected through this exact point, so moving the reticle moves what
+	 * you actually shoot - it never lies about where the bullet goes. Nudge it live with the
+	 * arrow keys while holding right mouse.
+	 *
+	 * This exists because a dead-centre reticle is wrong for this camera: the boom points at
+	 * the character, so screen centre is the ground just behind him.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom")
+	FVector2D AimCrosshairOffset = FVector2D(0.0f, -0.12f);
+
+	/**
+	 * Over-the-shoulder camera shift while aiming. X forward, Y right, Z up.
+	 *
+	 * Moves the CHARACTER off the reticle rather than moving the reticle off the character,
+	 * which is how third-person shooters keep the aim point in clear space.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom")
+	FVector AimSocketOffset = FVector(0.0f, 110.0f, 55.0f);
 
 	// --- Camera life. Idle sway plus reactive shake. ---
 

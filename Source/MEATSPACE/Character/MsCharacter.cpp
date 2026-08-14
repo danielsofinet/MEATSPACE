@@ -155,7 +155,14 @@ void AMsCharacter::ApplyCameraSettings()
 		CachedCameraBoom->SetWorldRotation(FRotator(-CameraPitch, CameraYaw, 0.0f));
 
 		CachedCameraBoom->TargetArmLength = CurrentDistance;
-		CachedCameraBoom->SocketOffset = FVector::ZeroVector;
+
+		// Over-the-shoulder shift while aiming, eased in. SocketOffset is applied in the
+		// boom's own space, so it moves the character sideways in frame without changing
+		// where the camera points.
+		const FVector TargetSocketOffset = IsAiming() ? AimSocketOffset : FVector::ZeroVector;
+		const float SocketDelta = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.0f;
+		CachedCameraBoom->SocketOffset = FMath::VInterpTo(
+			CachedCameraBoom->SocketOffset, TargetSocketOffset, SocketDelta, AimTransitionSpeed);
 
 		// Without this the boom collides with level geometry behind the character and snaps
 		// the camera in - unusable for a top-down rig where the boom is always inside walls.
@@ -404,6 +411,26 @@ void AMsCharacter::TickCameraTuning(float DeltaSeconds)
 		AimDistanceMultiplier = FMath::Clamp(AimDistanceMultiplier + 0.35f * DeltaSeconds, 0.1f, 2.0f);
 	}
 
+	// Arrow keys nudge the ADS reticle. Arrows are in the same physical place on every
+	// keyboard layout, unlike punctuation.
+	const float ReticleRate = 0.35f;
+	if (PC->IsInputKeyDown(EKeys::Left))
+	{
+		AimCrosshairOffset.X = FMath::Clamp(AimCrosshairOffset.X - ReticleRate * DeltaSeconds, -1.0f, 1.0f);
+	}
+	if (PC->IsInputKeyDown(EKeys::Right))
+	{
+		AimCrosshairOffset.X = FMath::Clamp(AimCrosshairOffset.X + ReticleRate * DeltaSeconds, -1.0f, 1.0f);
+	}
+	if (PC->IsInputKeyDown(EKeys::Up))
+	{
+		AimCrosshairOffset.Y = FMath::Clamp(AimCrosshairOffset.Y - ReticleRate * DeltaSeconds, -1.0f, 1.0f);
+	}
+	if (PC->IsInputKeyDown(EKeys::Down))
+	{
+		AimCrosshairOffset.Y = FMath::Clamp(AimCrosshairOffset.Y + ReticleRate * DeltaSeconds, -1.0f, 1.0f);
+	}
+
 	ShowCameraReadout();
 }
 
@@ -593,6 +620,9 @@ void AMsCharacter::ShowCameraReadout() const
 	GEngine->AddOnScreenDebugMessage(9007, 0.0f, IsAiming() ? FColor::Cyan : FColor::Silver,
 		FString::Printf(TEXT("ADS FOVx %.2f  [G less / H more]   DISTx %.2f  [V less / B more]%s"),
 			AimFOVMultiplier, AimDistanceMultiplier, IsAiming() ? TEXT("   << AIMING") : TEXT("")));
+	GEngine->AddOnScreenDebugMessage(9009, 0.0f, IsAiming() ? FColor::Cyan : FColor::Silver,
+		FString::Printf(TEXT("ADS RETICLE  x %.3f  y %.3f   [arrow keys]   SHOULDER Y %.0f"),
+			AimCrosshairOffset.X, AimCrosshairOffset.Y, AimSocketOffset.Y));
 	GEngine->AddOnScreenDebugMessage(9006, 0.0f, FColor::Green,
 		TEXT("--- CAMERA TUNING (P to hide) ---"));
 }
@@ -604,7 +634,7 @@ void AMsCharacter::OnToggleTuning()
 	if (!bCameraTuningMode && GEngine)
 	{
 		// Clear the readout lines so they do not linger once tuning is off.
-		for (int32 Key = 9001; Key <= 9007; ++Key)
+		for (int32 Key = 9001; Key <= 9009; ++Key)
 		{
 			GEngine->RemoveOnScreenDebugMessage(Key);
 		}
@@ -642,7 +672,12 @@ bool AMsCharacter::ComputeAimPoint(FVector& OutAimPoint) const
 			return false;
 		}
 
-		if (!PC->DeprojectScreenPositionToWorld(ViewportX * 0.5f, ViewportY * 0.5f, RayOrigin, RayDirection))
+		// Deproject through the reticle's actual screen position, not blindly through the
+		// centre - otherwise moving the reticle would make it lie about where shots land.
+		const float ScreenX = ViewportX * 0.5f + AimCrosshairOffset.X * ViewportX * 0.5f;
+		const float ScreenY = ViewportY * 0.5f + AimCrosshairOffset.Y * ViewportY * 0.5f;
+
+		if (!PC->DeprojectScreenPositionToWorld(ScreenX, ScreenY, RayOrigin, RayDirection))
 		{
 			return false;
 		}

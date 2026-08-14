@@ -64,6 +64,32 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Story|Cutscene", meta = (ClampMin = "0.2"))
 	float SecondsPerLine = 3.5f;
 
+	// --- Rewards. Applied AFTER the cutscene finishes, so the upgrade lands on the beat
+	// rather than during a fade to black where nobody would see it. ---
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Story|Reward")
+	bool bGrantSword = false;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Story|Reward")
+	bool bGrantGun = false;
+
+	/** Shield granted. 0 leaves the shield alone. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Story|Reward", meta = (ClampMin = "0.0"))
+	float GrantShieldAmount = 0.0f;
+
+	/** Objective set once the cutscene has finished and rewards are handed out. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Story|Reward")
+	FText ObjectiveAfterCutscene;
+
+	UPROPERTY(EditInstanceOnly, BlueprintReadWrite, Category = "Meatspace|Story|Reward")
+	TObjectPtr<AActor> ObjectiveTargetAfterCutscene;
+
+	UFUNCTION()
+	void HandleCutsceneFinished();
+
+	/** Hands out whatever this trigger grants. */
+	void ApplyRewards();
+
 private:
 	bool bFired = false;
 };

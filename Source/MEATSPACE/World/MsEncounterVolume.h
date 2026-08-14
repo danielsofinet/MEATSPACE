@@ -171,12 +171,36 @@ protected:
 
 	// --- Placement ---
 
-	/** Clankers appear in a ring this far from the volume's centre. */
+	/**
+	 * Distance from the volume that clankers arrive, in cm. 1000-1500 is 10-15 metres.
+	 *
+	 * Combined with the arc below, this is what stops dropships landing behind the player,
+	 * where they could be run past without ever being seen. A telegraph nobody sees is not a
+	 * telegraph.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Placement", meta = (ClampMin = "0.0"))
-	float MinSpawnRadius = 900.0f;
+	float MinSpawnRadius = 1000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Placement", meta = (ClampMin = "1.0"))
-	float MaxSpawnRadius = 2200.0f;
+	float MaxSpawnRadius = 1500.0f;
+
+	/**
+	 * Width of the arc that spawns are confined to, centred on the volume's forward direction
+	 * (the arrow, visible when it is selected). 360 spawns all the way around.
+	 *
+	 * Rotate the volume in the level so its arrow points where you want them to arrive -
+	 * normally ahead of the player, blocking the way on.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Placement", meta = (ClampMin = "10.0", ClampMax = "360.0"))
+	float SpawnArcDegrees = 150.0f;
+
+	/** Rotates the arc off the forward direction. 180 puts spawns behind the volume. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Placement", meta = (ClampMin = "-180.0", ClampMax = "180.0"))
+	float SpawnArcOffsetDegrees = 0.0f;
+
+	/** Editor-only arrow showing which way the volume faces. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Meatspace|Encounter")
+	TObjectPtr<class UArrowComponent> FacingArrow;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Placement", meta = (ClampMin = "100.0"))
 	float GroundTraceDistance = 3000.0f;

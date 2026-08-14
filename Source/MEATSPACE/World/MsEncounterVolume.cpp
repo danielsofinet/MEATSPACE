@@ -4,6 +4,7 @@
 #include "Clankers/MsClankerBase.h"
 #include "Clankers/MsClankerSmall.h"
 #include "Combat/MsHealthComponent.h"
+#include "Components/ArrowComponent.h"
 #include "Components/BoxComponent.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
@@ -22,6 +23,13 @@ AMsEncounterVolume::AMsEncounterVolume()
 	TriggerBox->SetCollisionResponseToChannel(ECC_Pawn, ECR_Overlap);
 	TriggerBox->SetGenerateOverlapEvents(true);
 	SetRootComponent(TriggerBox);
+
+	// Shows which way the volume faces, so the spawn arc is visible while placing it.
+	FacingArrow = CreateDefaultSubobject<UArrowComponent>(TEXT("FacingArrow"));
+	FacingArrow->SetupAttachment(TriggerBox);
+	FacingArrow->ArrowSize = 3.0f;
+	FacingArrow->ArrowColor = FColor(255, 160, 40);
+	FacingArrow->SetHiddenInGame(true);
 
 	// Works out of the box with just small clankers - the onboarding ambush is a mob of them.
 	FMsSpawnEntry Small;
@@ -311,9 +319,16 @@ bool AMsEncounterVolume::FindSpawnLocation(FVector& OutLocation) const
 
 	const FVector Centre = GetActorLocation();
 
+	// Spawns are confined to an arc around the volume's forward direction, so rotating the
+	// actor in the level decides where reinforcements come from.
+	const float BaseYaw = GetActorRotation().Yaw + SpawnArcOffsetDegrees;
+	const float HalfArc = FMath::Clamp(SpawnArcDegrees, 10.0f, 360.0f) * 0.5f;
+
 	for (int32 Attempt = 0; Attempt < PlacementAttempts; ++Attempt)
 	{
-		const float Angle = FMath::FRandRange(0.0f, 2.0f * PI);
+		const float Yaw = BaseYaw + FMath::FRandRange(-HalfArc, HalfArc);
+		const float Angle = FMath::DegreesToRadians(Yaw);
+
 		const float Radius = FMath::FRandRange(FMath::Min(MinSpawnRadius, MaxSpawnRadius),
 			FMath::Max(MinSpawnRadius, MaxSpawnRadius));
 

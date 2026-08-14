@@ -83,6 +83,16 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
 	bool HasAnyWeapon() const { return bSwordUnlocked || bGunUnlocked; }
 
+	/**
+	 * Grants (or upgrades) the shield. Pass 0 to remove it.
+	 *
+	 * The player starts with no shield at all, so the onboarding fight is fought on health
+	 * alone - which is what makes it feel dangerous, and makes receiving the shield later
+	 * read as an actual upgrade rather than a number going up.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Meatspace|Combat")
+	void UnlockShield(float NewMaxShield);
+
 	// --- Dialogue ---
 
 	/** Called by an NPC when a conversation starts. Locks out attacking while talking. */
@@ -185,6 +195,10 @@ protected:
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Combat")
 	bool bStartWithGun = true;
+
+	/** Shield the player begins with. 0 means none until something grants it. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Combat", meta = (ClampMin = "0.0"))
+	float StartingMaxShield = 0.0f;
 
 	/** How far the player can reach to interact. Overridden by an interactable's own radius. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Interaction", meta = (ClampMin = "10.0"))

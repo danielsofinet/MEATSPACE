@@ -65,6 +65,15 @@ void AMsCharacter::BeginPlay()
 	bSwordUnlocked = bStartWithSword;
 	bGunUnlocked = bStartWithGun;
 
+	// Shield is off by default and granted by the story. Applied here rather than in the
+	// constructor so a designer changing StartingMaxShield does not have to reason about
+	// component construction order.
+	if (HealthComponent)
+	{
+		HealthComponent->MaxShield = StartingMaxShield;
+		HealthComponent->Shield = StartingMaxShield;
+	}
+
 	if (HasAuthority())
 	{
 		// Never start holding a weapon we do not have.
@@ -758,6 +767,23 @@ void AMsCharacter::UnlockWeapon(EMsWeaponSlot Slot, bool bEquipImmediately)
 	ShowWeaponFeedback();
 }
 
+void AMsCharacter::UnlockShield(float NewMaxShield)
+{
+	if (!HealthComponent)
+	{
+		return;
+	}
+
+	HealthComponent->MaxShield = FMath::Max(NewMaxShield, 0.0f);
+
+	// Arrive at full. Being handed a shield and having to wait for it to charge would be an
+	// anticlimax.
+	HealthComponent->Shield = HealthComponent->MaxShield;
+
+	// The component only ticks when there is a shield to regenerate.
+	HealthComponent->SetComponentTickEnabled(HasAuthority() && HealthComponent->HasShield());
+}
+
 void AMsCharacter::BeginDialogue(AMsNpc* Npc)
 {
 	ActiveDialogue = Npc;
@@ -916,9 +942,15 @@ void AMsCharacter::ShowWeaponFeedback() const
 	if (GEngine)
 	{
 		const bool bSword = (ActiveSlot == EMsWeaponSlot::Sword);
+
+		// Lock state is printed too, so "why can I still equip the gun" is answerable at a
+		// glance instead of by reading code.
 		GEngine->AddOnScreenDebugMessage(
-			static_cast<uint64>(GetUniqueID()), 2.0f,
+			static_cast<uint64>(GetUniqueID()), 3.0f,
 			bSword ? FColor::Cyan : FColor::Orange,
-			FString::Printf(TEXT("EQUIPPED: %s"), bSword ? TEXT("SWORD  [1]") : TEXT("GUN  [2]")));
+			FString::Printf(TEXT("EQUIPPED: %s      unlocked: sword %s / gun %s"),
+				bSword ? TEXT("SWORD") : TEXT("GUN"),
+				bSwordUnlocked ? TEXT("YES") : TEXT("no"),
+				bGunUnlocked ? TEXT("YES") : TEXT("no")));
 	}
 }

@@ -100,6 +100,24 @@ void AMsHUD::DrawHealthBar(const AMsCharacter* Character)
 		const FLinearColor FillColor = FMath::Lerp(HealthLowColor, HealthHighColor, Percent);
 		DrawRect(FillColor, BarX, BarY, BarWidth * Percent, HealthBarHeight);
 	}
+
+	// Shield above health. Separate bar rather than a shared one, because the two behave
+	// differently - shield comes back on its own, health does not - and that difference is
+	// the thing the player needs to read at a glance.
+	if (Health->HasShield())
+	{
+		const float ShieldPercent = FMath::Clamp(Health->GetShieldPercent(), 0.0f, 1.0f);
+		const float ShieldY = BarY - ShieldBarGap - ShieldBarHeight;
+
+		DrawRect(HealthBarBackColor,
+			BarX - Padding, ShieldY - Padding,
+			BarWidth + Padding * 2.0f, ShieldBarHeight + Padding * 2.0f);
+
+		if (ShieldPercent > 0.0f)
+		{
+			DrawRect(ShieldColor, BarX, ShieldY, BarWidth * ShieldPercent, ShieldBarHeight);
+		}
+	}
 }
 
 void AMsHUD::DrawDamageFlash(const AMsCharacter* Character)

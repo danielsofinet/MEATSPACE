@@ -43,6 +43,14 @@ AMsCharacter::AMsCharacter()
 	HealthComponent = CreateDefaultSubobject<UMsHealthComponent>(TEXT("HealthComponent"));
 	HealthComponent->MaxHealth = 100.0f;
 	HealthComponent->Health = 100.0f;
+
+	// Partial protection, not immunity: 60% of each hit goes to the shield, 40% still lands
+	// on health. Regenerates after a few seconds out of contact.
+	HealthComponent->MaxShield = 60.0f;
+	HealthComponent->Shield = 60.0f;
+	HealthComponent->ShieldAbsorbFraction = 0.6f;
+	HealthComponent->ShieldRegenDelay = 3.0f;
+	HealthComponent->ShieldRegenRate = 14.0f;
 }
 
 void AMsCharacter::BeginPlay()

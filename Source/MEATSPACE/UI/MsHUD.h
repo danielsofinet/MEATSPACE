@@ -76,6 +76,16 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Health", meta = (ClampMin = "0.0", ClampMax = "1.0"))
 	float DamageFlashOpacity = 0.30f;
 
+	/** Shield bar sits directly above the health bar. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Health", meta = (ClampMin = "1.0"))
+	float ShieldBarHeight = 8.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Health", meta = (ClampMin = "0.0"))
+	float ShieldBarGap = 4.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Health")
+	FLinearColor ShieldColor = FLinearColor(0.35f, 0.75f, 1.0f, 0.95f);
+
 	void DrawHealthBar(const class AMsCharacter* Character);
 	void DrawDamageFlash(const class AMsCharacter* Character);
 };

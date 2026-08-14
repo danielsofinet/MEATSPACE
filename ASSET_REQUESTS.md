@@ -64,9 +64,62 @@ rather than one "sex" setting driving both. Technically identical — two meshes
 but it means a player is not forced to pick a body to get the pronouns they want. Cheap to
 decide now, awkward to retrofit because it changes the saved data model.
 
-The runtime side (`MsAppearance`: body type + skin tone, applied on spawn, replicated for
-co-op, saved to profile) is roughly an hour of work and gets built once there is a character
-to preview it on.
+---
+
+### MODULAR CLOTHING — build the character this way from the start
+
+Cosmetics are core to MEATSPACE's art direction, so the character is **modular from day one**.
+This is the right call to make now: modular changes how the *body* is built, not just what
+sits on top of it, so retrofitting means rebuilding the character.
+
+#### How it works in engine
+
+One **body** skeletal mesh is the leader. Each clothing piece is its own skeletal mesh rigged
+to the **same skeleton**, attached to the body and driven by it (`SetLeaderPoseComponent`), so
+every piece animates from the body's bones automatically. Swapping an outfit is swapping a
+mesh pointer — no re-rigging, no per-outfit animation.
+
+#### Slots to design around
+
+| Slot | Covers |
+|---|---|
+| `Head` | hair, helmet, mask |
+| `Torso` | jacket, shirt, armour |
+| `Arms` | sleeves, bracers |
+| `Hands` | gloves |
+| `Legs` | trousers, skirt |
+| `Feet` | boots |
+| `Back` | pack, cape, sheath |
+
+Not every slot needs filling — an empty slot just shows the body underneath.
+
+#### What this requires of the body mesh
+
+**Split the body into material sections matching those slots** (head / torso / arms / hands /
+legs / feet). At runtime I hide the sections covered by clothing, which is how clipping gets
+solved — a jacket hides the torso section rather than fighting with it.
+
+This is the single most important requirement here, and it is a *modelling* decision. A body
+authored as one undivided section cannot have parts hidden, and every garment will clip.
+
+#### Rules for every clothing piece
+
+- Rigged and weighted to the **same UE5 Mannequin skeleton** as the body
+- Exported as its **own FBX**, referencing that shared skeleton
+- Modelled **slightly proud of the body surface** so it never intersects during animation
+- Its own material slot, so colourways can be driven as parameters like skin tone
+- Keep the **body's UV layout fixed forever** — every future skin and outfit is authored
+  against it, so changing it later invalidates all of them
+
+#### Cost, honestly
+
+Each equipped piece is an extra skinned mesh. On the player character that is negligible —
+it matters for crowds, and clankers are not modular. No concern at MEATSPACE's scale.
+
+The runtime side (`MsAppearance`: body type, skin tone, and a mesh per slot, applied on spawn,
+replicated for co-op, saved to profile) gets built once the first body plus one clothing piece
+exist to test with. **Deliver a body and a single jacket and I can build and prove the whole
+system** — everything after that is content.
 
 ### 2. Small clanker — most-seen asset in the game
 

@@ -24,16 +24,64 @@ enum class EMsSwingPhase : uint8
 };
 
 /**
- * Sword. Swept-arc melee, server-authoritative.
+ * One attack in the combo chain.
  *
- * Why this is not just "a shorter gun trace": a sword hit is a volume moving through space
- * over time. Each Active tick sweeps a sphere from where the blade was to where it is now,
- * so a fast swing cannot tunnel past a clanker between frames. Each actor can only be hit
- * once per swing, which is what makes cleaving through a crowd feel fair rather than
- * accidentally dealing damage several times to the same target.
+ * Default chain: right -> left -> full circle. Click again during a swing to queue the next
+ * step; stop clicking and the chain resets.
+ */
+USTRUCT(BlueprintType)
+struct FMsSwingStep
+{
+	GENERATED_BODY()
+
+	/** Total sweep angle. 360 is a full spin. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Swing", meta = (ClampMin = "10.0", ClampMax = "360.0"))
+	float ArcDegrees = 160.0f;
+
+	/** False sweeps left-to-right, true sweeps right-to-left. Alternate these so the chain reads as a rhythm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Swing")
+	bool bRightToLeft = false;
+
+	/** Scales the component's base Damage for this step. Finishers should hit harder. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Swing", meta = (ClampMin = "0.0"))
+	float DamageMultiplier = 1.0f;
+
+	/** Scales the component's base Reach for this step. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Swing", meta = (ClampMin = "0.1"))
+	float ReachMultiplier = 1.0f;
+
+	/** Commit delay before the blade goes live. Higher = heavier, more readable. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Timing", meta = (ClampMin = "0.0"))
+	float WindupTime = 0.10f;
+
+	/** How long the blade is dangerous. This is the swing itself. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Timing", meta = (ClampMin = "0.01"))
+	float ActiveTime = 0.16f;
+
+	/** Follow-through before the next swing can begin. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Timing", meta = (ClampMin = "0.0"))
+	float RecoveryTime = 0.22f;
+
+	/** Optional per-step animation. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Swing")
+	TObjectPtr<UAnimMontage> Montage = nullptr;
+};
+
+/**
+ * Sword. Swept-sector melee, server-authoritative.
  *
- * Same netcode shape as the gun: the swinging client runs the whole state machine locally
- * for feel, but only the server's copy applies damage.
+ * Hit volume is deliberately generous rather than realistic: a vertical cylinder around the
+ * character, from the ground to above the head, out to Reach. A target is hit when the swing's
+ * angular sweep passes over it - at any distance from the character's feet outward, at any
+ * height. That means clipping a clanker with the base of the blade counts, and so does hitting
+ * something crouched or hovering just overhead.
+ *
+ * Each Active frame only tests the angular slice covered since the last frame, so a fast swing
+ * still reads as a swing travelling through space rather than an instant cone of death. Each
+ * actor can only be hit once per swing, which is what makes cleaving a crowd fair.
+ *
+ * Same netcode shape as the gun: the swinging client runs the whole state machine locally for
+ * feel, but only the server's copy applies damage.
  */
 UCLASS(ClassGroup = (Meatspace), meta = (BlueprintSpawnableComponent))
 class MEATSPACE_API UMsMeleeComponent : public UActorComponent
@@ -46,7 +94,7 @@ public:
 	virtual void TickComponent(float DeltaTime, ELevelTick TickType,
 		FActorComponentTickFunction* ThisTickFunction) override;
 
-	/** Begin a swing, if not already mid-swing. */
+	/** Swing. Called again mid-swing, this queues the next step of the combo. */
 	UFUNCTION(BlueprintCallable, Category = "Meatspace|Melee")
 	void StartSwing();
 
@@ -56,67 +104,78 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Melee")
 	EMsSwingPhase GetPhase() const { return Phase; }
 
-	// --- Tunables. All live-editable; go find what feels good. ---
+	/** Which step of the combo is currently executing. */
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Melee")
+	int32 GetComboIndex() const { return ComboIndex; }
 
-	/** Damage per target hit. Applies once per actor per swing. */
+	// --- Tunables ---
+
+	/** Base damage per target hit, before the step's multiplier. Applies once per actor per swing. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee")
 	float Damage = 45.0f;
 
-	/** How far the blade reaches, in cm. */
+	/** Base reach in cm, measured from the character outward. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee", meta = (ClampMin = "10.0"))
-	float Reach = 220.0f;
+	float Reach = 260.0f;
 
-	/** Blade thickness. Bigger = more forgiving hits. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee", meta = (ClampMin = "1.0"))
-	float BladeRadius = 35.0f;
+	/**
+	 * Half-height of the hit cylinder, in cm. 110 covers ground to just above the head of a
+	 * standard character. Raise it to catch hovering clankers with a ground swing.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee", meta = (ClampMin = "10.0"))
+	float HitHalfHeight = 110.0f;
 
-	/** Total sweep angle. 140 means 70 degrees either side of forward. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee", meta = (ClampMin = "10.0", ClampMax = "360.0"))
-	float ArcDegrees = 140.0f;
+	/**
+	 * Extra degrees added to each side of the swept slice. Pure generosity - it widens the
+	 * window in which a target counts as hit. Raise it if swings feel like they should have
+	 * connected.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee", meta = (ClampMin = "0.0", ClampMax = "90.0"))
+	float AngleTolerance = 12.0f;
 
-	/** Commit delay before the blade goes live. Higher = heavier, more readable. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee|Timing", meta = (ClampMin = "0.0"))
-	float WindupTime = 0.12f;
-
-	/** How long the blade is dangerous. This is the swing itself. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee|Timing", meta = (ClampMin = "0.01"))
-	float ActiveTime = 0.18f;
-
-	/** Follow-through before you can swing again. This governs attack spam. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee|Timing", meta = (ClampMin = "0.0"))
-	float RecoveryTime = 0.28f;
-
-	/** Height of the swing plane above the character's origin. */
+	/**
+	 * If true, a target's physical size widens its hit window - big clankers are easier to
+	 * clip than their centre point alone would allow.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee")
-	float HeightOffset = 60.0f;
+	bool bAccountForTargetSize = true;
 
-	/** Draw the arc so you can see exactly what the blade swept. */
+	/** The combo chain. Default: right, then left, then a full spin. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee|Combo")
+	TArray<FMsSwingStep> ComboSteps;
+
+	/**
+	 * How long after a swing ends the chain stays open. Click again inside this window to
+	 * continue the combo; let it lapse and the next click starts from step 1.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee|Combo", meta = (ClampMin = "0.0"))
+	float ComboResetTime = 0.7f;
+
+	/** Draw the swept sector so you can see exactly what the blade covered. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee|Debug")
 	bool bDrawDebugSwing = true;
 
-	/**
-	 * Optional swing animation. Assign one of the template's melee montages here in the
-	 * Blueprint (MM_Attack_01 / _02 / _03 live in Characters/Mannequins/Anims/Unarmed/Attack).
-	 * Purely cosmetic - the hit detection above does not depend on it.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Melee")
-	TObjectPtr<UAnimMontage> SwingMontage;
-
 protected:
-	/** Client -> server: "I swung." Server runs its own authoritative swing. */
+	/** Client -> server. Sends the step index so both sides run the same attack. */
 	UFUNCTION(Server, Reliable)
-	void ServerSwing();
+	void ServerSwing(uint8 StepIndex);
 
-	/** Starts the state machine. Runs on both the local client and the server. */
-	void BeginSwing();
+	/** Starts a specific step of the chain. Runs on both the local client and the server. */
+	void BeginSwing(int32 StepIndex);
 
-	/** Sweeps the blade from one point in the arc to the next. */
-	void SweepSegment(float PrevAlpha, float NewAlpha);
+	/** Applies damage to anything inside the angular slice covered since the last frame. */
+	void SweepSlice(float PrevAlpha, float NewAlpha);
 
-	/** Blade tip position at a given point through the swing (0 = start, 1 = end). */
-	FVector GetBladePoint(float Alpha) const;
+	/** Signed horizontal angle in degrees from the owner's forward. Positive = to the right. */
+	float SignedAngleToTarget(const FVector& TargetLocation) const;
 
-	void PlaySwingMontage();
+	/** Start and end angle of the current step, in degrees relative to forward. */
+	void GetStepAngles(float& OutStartAngle, float& OutEndAngle) const;
+
+	const FMsSwingStep& GetCurrentStep() const;
+
+	void PlayStepMontage();
+	void DrawSwingDebug(float PrevAngle, float NewAngle) const;
 
 private:
 	EMsSwingPhase Phase = EMsSwingPhase::Idle;
@@ -126,6 +185,15 @@ private:
 
 	/** Progress through the arc during Active, 0..1. */
 	float SwingAlpha = 0.0f;
+
+	/** Which step of ComboSteps is running. */
+	int32 ComboIndex = 0;
+
+	/** Set when the player clicks mid-swing - consumed when the current swing finishes. */
+	bool bComboQueued = false;
+
+	/** When the last swing finished, for combo-window timing. */
+	float LastSwingEndTime = -1000.0f;
 
 	/** One hit per actor per swing. */
 	TSet<TWeakObjectPtr<AActor>> HitActorsThisSwing;

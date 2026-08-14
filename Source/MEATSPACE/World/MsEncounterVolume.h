@@ -11,6 +11,25 @@ class UBoxComponent;
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMsOnEncounterTriggered, class AMsEncounterVolume*, Encounter);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FMsOnEncounterCleared, class AMsEncounterVolume*, Encounter);
 
+/** How an encounter decides to send the next group. */
+UENUM(BlueprintType)
+enum class EMsEncounterPacing : uint8
+{
+	/**
+	 * Reinforce when the fight thins out, and end only when everything is dead.
+	 * Paces itself to the player's skill - kill faster, get reinforced sooner.
+	 */
+	ClearToProceed		UMETA(DisplayName = "Clear to proceed"),
+
+	/**
+	 * Escalate on a clock and end after a fixed time, whatever the player is doing.
+	 * Indifferent to how well you are doing, which is exactly what makes it feel like
+	 * losing control - the reinforcements arrive because time passed, not because you
+	 * earned them.
+	 */
+	TimedEscalation		UMETA(DisplayName = "Timed escalation")
+};
+
 /**
  * A fight that belongs to a place.
  *
@@ -70,24 +89,85 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter")
 	TArray<FMsSpawnEntry> SpawnTable;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter")
+	EMsEncounterPacing Pacing = EMsEncounterPacing::TimedEscalation;
+
+	// --- Timed escalation ---
+
+	/**
+	 * How many arrive in each round, in order. The default 1, 2, 3, 5 is the onboarding
+	 * ambush: one clanker takes exception to your sword, then it calls friends, and it gets
+	 * away from you fast.
+	 *
+	 * An explicit list rather than a growth formula, because the shape of an escalation is a
+	 * design decision and you should be able to see it at a glance.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Timed")
+	TArray<int32> RoundCounts;
+
+	/** Seconds between rounds. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Timed", meta = (ClampMin = "0.5"))
+	float RoundInterval = 6.0f;
+
+	/**
+	 * Encounter ends after this many seconds regardless of what is still alive.
+	 * 0 means it runs until every round is spawned and dead.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Timed", meta = (ClampMin = "0.0"))
+	float MaxDuration = 30.0f;
+
+	/**
+	 * Remove whatever is still alive when the encounter ends.
+	 *
+	 * Without this, a timed encounter that ends while you are surrounded just leaves you
+	 * surrounded, and "it is over, move on" becomes a lie.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Timed")
+	bool bDespawnRemainingOnEnd = true;
+
+	// --- Clear to proceed ---
+
 	/** Total clankers across the whole encounter. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter", meta = (ClampMin = "1"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Clear", meta = (ClampMin = "1"))
 	int32 TotalToSpawn = 8;
 
 	/**
 	 * How many arrive at once. The rest are held back as reinforcements, which is what stops
 	 * an encounter being one overwhelming lump followed by nothing.
 	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter", meta = (ClampMin = "1"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Clear", meta = (ClampMin = "1"))
 	int32 SpawnPerRound = 4;
 
 	/** Next round arrives once the live count drops to this. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter", meta = (ClampMin = "0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Clear", meta = (ClampMin = "0"))
 	int32 ReinforceWhenAliveAtOrBelow = 1;
 
 	/** Fires only once. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter")
 	bool bTriggerOnce = true;
+
+	// --- Delivery ---
+
+	/**
+	 * Clankers arrive by dropship instead of appearing on the ground.
+	 *
+	 * Worth it for more than fiction: a pod falling for a second telegraphs exactly where the
+	 * next group lands, which turns escalation into something the player can respond to
+	 * rather than something that simply happens around them.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Delivery")
+	bool bDeliverByDropPod = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Delivery")
+	TSubclassOf<class AMsDropPod> DropPodClass;
+
+	/** Clankers per pod. More than this in a round means more than one pod. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Encounter|Delivery", meta = (ClampMin = "1"))
+	int32 PodCapacity = 6;
+
+	/** Tracks clankers that arrived by pod, so the encounter still knows when it is clear. */
+	UFUNCTION()
+	void HandleClankerDelivered(AMsClankerBase* Clanker);
 
 	// --- Placement ---
 
@@ -124,6 +204,10 @@ protected:
 	bool bShowDebugReadout = false;
 
 	void SpawnRound();
+
+	/** Spawns a specific number, for timed rounds. */
+	void SpawnCount(int32 Count);
+
 	void SpawnOne(TSubclassOf<AMsClankerBase> ClankerClass);
 	bool FindSpawnLocation(FVector& OutLocation) const;
 	TSubclassOf<AMsClankerBase> PickClankerClass() const;
@@ -139,4 +223,14 @@ private:
 	bool bCleared = false;
 	int32 SpawnedSoFar = 0;
 	int32 RoundIndex = 0;
+
+	/** Seconds since the encounter started, for timed pacing. */
+	float ElapsedTime = 0.0f;
+	float NextRoundTime = 0.0f;
+
+	/**
+	 * Clankers dispatched but not yet unloaded. Without this the encounter sees zero alive
+	 * while pods are still falling and declares itself cleared mid-drop.
+	 */
+	int32 PendingDeliveries = 0;
 };

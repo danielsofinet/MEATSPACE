@@ -8,6 +8,7 @@
 #include "Engine/Engine.h"
 #include "Engine/World.h"
 #include "Game/MsObjectiveSubsystem.h"
+#include "World/MsDropPod.h"
 
 AMsEncounterVolume::AMsEncounterVolume()
 {
@@ -27,6 +28,13 @@ AMsEncounterVolume::AMsEncounterVolume()
 	Small.ClankerClass = AMsClankerSmall::StaticClass();
 	Small.Weight = 1.0f;
 	SpawnTable = { Small };
+
+	// The onboarding ambush: a dropship unloads five, then a second arrives with six. Roughly
+	// 30 seconds from "a problem" to "leave now".
+	RoundCounts = { 5, 6 };
+	RoundInterval = 5.0f;
+
+	DropPodClass = AMsDropPod::StaticClass();
 }
 
 void AMsEncounterVolume::BeginPlay()
@@ -67,6 +75,8 @@ void AMsEncounterVolume::TriggerEncounter()
 	bCleared = false;
 	SpawnedSoFar = 0;
 	RoundIndex = 0;
+	ElapsedTime = 0.0f;
+	NextRoundTime = 0.0f;
 	AliveClankers.Reset();
 
 	SetActorTickEnabled(true);
@@ -98,18 +108,43 @@ void AMsEncounterVolume::Tick(float DeltaSeconds)
 
 	PruneAliveList();
 
+	ElapsedTime += DeltaSeconds;
+
 	const int32 Alive = AliveClankers.Num();
 
+	if (Pacing == EMsEncounterPacing::TimedEscalation)
+	{
+		// Rounds arrive because time passed, not because the player earned them. That
+		// indifference is the whole feeling: it escalates whether you are winning or not.
+		if (RoundCounts.IsValidIndex(RoundIndex) && ElapsedTime >= NextRoundTime)
+		{
+			SpawnCount(RoundCounts[RoundIndex]);
+			++RoundIndex;
+			NextRoundTime = ElapsedTime + RoundInterval;
+		}
+
+		const bool bOutOfTime = MaxDuration > 0.0f && ElapsedTime >= MaxDuration;
+		const bool bAllSpawnedAndDead = !RoundCounts.IsValidIndex(RoundIndex)
+			&& Alive == 0 && PendingDeliveries == 0;
+
+		if (bOutOfTime || bAllSpawnedAndDead)
+		{
+			MarkCleared();
+		}
+
+		return;
+	}
+
+	// Clear-to-proceed: reinforce on attrition, so the fight paces itself to how fast the
+	// player is actually killing things.
 	if (SpawnedSoFar < TotalToSpawn)
 	{
-		// Reinforce on attrition rather than a timer, so the fight paces itself to how fast
-		// the player is actually killing things.
 		if (Alive <= ReinforceWhenAliveAtOrBelow)
 		{
 			SpawnRound();
 		}
 	}
-	else if (Alive == 0)
+	else if (Alive == 0 && PendingDeliveries == 0)
 	{
 		MarkCleared();
 	}
@@ -133,6 +168,21 @@ void AMsEncounterVolume::MarkCleared()
 	bActive = false;
 	bCleared = true;
 	SetActorTickEnabled(false);
+
+	// A timed encounter that ends while the player is surrounded has to actually end, or
+	// "it is over, move on" is a lie and they get chased through the next beat.
+	if (bDespawnRemainingOnEnd && Pacing == EMsEncounterPacing::TimedEscalation)
+	{
+		for (const TWeakObjectPtr<AMsClankerBase>& Entry : AliveClankers)
+		{
+			if (AMsClankerBase* Clanker = Entry.Get())
+			{
+				Clanker->Destroy();
+			}
+		}
+	}
+
+	AliveClankers.Reset();
 
 	if (!ObjectiveOnCleared.IsEmpty())
 	{
@@ -319,7 +369,70 @@ void AMsEncounterVolume::SpawnRound()
 	++RoundIndex;
 
 	const int32 Remaining = FMath::Max(0, TotalToSpawn - SpawnedSoFar);
-	const int32 Count = FMath::Min(SpawnPerRound, Remaining);
+	SpawnCount(FMath::Min(SpawnPerRound, Remaining));
+}
+
+void AMsEncounterVolume::SpawnCount(int32 Count)
+{
+	if (Count <= 0)
+	{
+		return;
+	}
+
+	if (bDeliverByDropPod && DropPodClass)
+	{
+		UWorld* World = GetWorld();
+		if (!World)
+		{
+			return;
+		}
+
+		// Split the round across as many pods as it takes.
+		int32 Remaining = Count;
+		while (Remaining > 0)
+		{
+			const int32 ThisPod = FMath::Min(Remaining, FMath::Max(PodCapacity, 1));
+			Remaining -= ThisPod;
+
+			TArray<TSubclassOf<AMsClankerBase>> Payload;
+			for (int32 Index = 0; Index < ThisPod; ++Index)
+			{
+				if (const TSubclassOf<AMsClankerBase> ClankerClass = PickClankerClass())
+				{
+					Payload.Add(ClankerClass);
+				}
+			}
+
+			if (Payload.Num() == 0)
+			{
+				break;
+			}
+
+			FVector ImpactLocation;
+			if (!FindSpawnLocation(ImpactLocation))
+			{
+				break;
+			}
+
+			FActorSpawnParameters SpawnParams;
+			SpawnParams.SpawnCollisionHandlingOverride = ESpawnActorCollisionHandlingMethod::AlwaysSpawn;
+			SpawnParams.Owner = this;
+
+			if (AMsDropPod* Pod = World->SpawnActor<AMsDropPod>(
+				DropPodClass, ImpactLocation, FRotator::ZeroRotator, SpawnParams))
+			{
+				// The pod spawns the clankers when it lands, so we count them then rather
+				// than now - otherwise the encounter would think it was already fighting.
+				Pod->OnClankerDelivered.AddDynamic(this, &AMsEncounterVolume::HandleClankerDelivered);
+				Pod->Deliver(Payload, ImpactLocation);
+
+				SpawnedSoFar += Payload.Num();
+				PendingDeliveries += Payload.Num();
+			}
+		}
+
+		return;
+	}
 
 	for (int32 Index = 0; Index < Count; ++Index)
 	{
@@ -327,5 +440,15 @@ void AMsEncounterVolume::SpawnRound()
 		{
 			SpawnOne(ClankerClass);
 		}
+	}
+}
+
+void AMsEncounterVolume::HandleClankerDelivered(AMsClankerBase* Clanker)
+{
+	PendingDeliveries = FMath::Max(0, PendingDeliveries - 1);
+
+	if (Clanker)
+	{
+		AliveClankers.Add(Clanker);
 	}
 }

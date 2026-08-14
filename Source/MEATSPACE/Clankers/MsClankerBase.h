@@ -77,6 +77,25 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Clanker")
 	bool bFaceMovementDirection = true;
 
+	/**
+	 * Ground-walkers ride the surface: movement is horizontal only, and height is set by a
+	 * downward trace each frame. Without this they sit flush in the floor, every swept move
+	 * grazes it, and they end up rotating on the spot instead of advancing.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Clanker|Ground")
+	bool bSnapToGround = false;
+
+	/** How far above the traced floor the actor's origin sits. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Clanker|Ground", meta = (ClampMin = "0.0"))
+	float GroundOffset = 45.0f;
+
+	/** How far down to look for a floor before giving up. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Clanker|Ground", meta = (ClampMin = "1.0"))
+	float GroundTraceDistance = 400.0f;
+
+	/** Snaps the actor onto the floor beneath it. */
+	void SnapToGround();
+
 	/** Smoothed current velocity. Used for steering and for flock alignment. */
 	FVector CurrentVelocity = FVector::ZeroVector;
 

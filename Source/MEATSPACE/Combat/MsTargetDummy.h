@@ -33,14 +33,23 @@ protected:
 	 * sword and gun feel different against something that will not hold still.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Target|Movement")
-	bool bChasePlayer = false;
+	bool bChasePlayer = true;
 
+	/** Slower than the small clankers - these read as the heavy ones. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Target|Movement", meta = (ClampMin = "0.0"))
-	float ChaseSpeed = 220.0f;
+	float ChaseSpeed = 260.0f;
 
 	/** Stops closing once this near the player. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Target|Movement", meta = (ClampMin = "0.0"))
-	float ChaseStopDistance = 130.0f;
+	float ChaseStopDistance = 150.0f;
+
+	/** Ride the floor rather than sitting flush in it - see MsClankerBase for why. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Target|Movement")
+	bool bSnapToGround = true;
+
+	/** Height of the actor origin above the traced floor. The engine cube is 100 tall. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Target|Movement", meta = (ClampMin = "0.0"))
+	float GroundOffset = 52.0f;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Meatspace|Target")

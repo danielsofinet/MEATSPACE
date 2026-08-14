@@ -56,6 +56,21 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Combat")
 	EMsWeaponSlot StartingSlot = EMsWeaponSlot::Gun;
 
+	/**
+	 * Offsets the camera boom over the character's shoulder.
+	 *
+	 * The crosshair marks the centre of the screen because that is genuinely where shots go.
+	 * With a centred camera the character stands right on top of that point, so you are aiming
+	 * at your own back. Shifting the camera sideways clears the line of sight without changing
+	 * where the gun actually shoots.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera")
+	bool bUseShoulderCamera = true;
+
+	/** X = forward, Y = right, Z = up. Raise Y to push the character further off-centre. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera")
+	FVector ShoulderOffset = FVector(0.0f, 75.0f, 45.0f);
+
 	UFUNCTION()
 	void OnRep_ActiveSlot();
 

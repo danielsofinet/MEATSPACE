@@ -111,10 +111,21 @@ void AMsClankerBase::Tick(float DeltaSeconds)
 		DesiredDirection = FVector::ZeroVector;
 	}
 
-	const FVector DesiredVelocity = DesiredDirection * MoveSpeed;
+	FVector DesiredVelocity = DesiredDirection * MoveSpeed;
+
+	// Ground-walkers never steer vertically - height is the ground trace's job.
+	if (bSnapToGround)
+	{
+		DesiredVelocity.Z = 0.0f;
+	}
 
 	// Smooth toward the desired velocity instead of snapping, so turns read as momentum.
 	CurrentVelocity = FMath::VInterpTo(CurrentVelocity, DesiredVelocity, DeltaSeconds, TurnResponsiveness);
+
+	if (bSnapToGround)
+	{
+		CurrentVelocity.Z = 0.0f;
+	}
 
 	if (!CurrentVelocity.IsNearlyZero())
 	{
@@ -138,6 +149,38 @@ void AMsClankerBase::Tick(float DeltaSeconds)
 				SetActorRotation(FMath::RInterpTo(GetActorRotation(), Target, DeltaSeconds, TurnResponsiveness));
 			}
 		}
+	}
+
+	// Ride the surface. Done after moving so slopes and steps are followed rather than fought.
+	if (bSnapToGround)
+	{
+		SnapToGround();
+	}
+}
+
+void AMsClankerBase::SnapToGround()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	const FVector Location = GetActorLocation();
+
+	// Start above the actor so we still find the floor after walking up a small step.
+	const FVector Start = Location + FVector(0.0f, 0.0f, GroundTraceDistance * 0.5f);
+	const FVector End = Location - FVector(0.0f, 0.0f, GroundTraceDistance);
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(MsClankerGround), /*bTraceComplex=*/false);
+	Params.AddIgnoredActor(this);
+
+	FHitResult Hit;
+	if (World->LineTraceSingleByChannel(Hit, Start, End, ECC_Visibility, Params))
+	{
+		FVector Snapped = Location;
+		Snapped.Z = Hit.ImpactPoint.Z + GroundOffset;
+		SetActorLocation(Snapped, /*bSweep=*/false);
 	}
 }
 

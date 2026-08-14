@@ -9,9 +9,13 @@ TArray<TWeakObjectPtr<AMsClankerSmall>> AMsClankerSmall::LiveClankers;
 
 AMsClankerSmall::AMsClankerSmall()
 {
-	MoveSpeed = 340.0f;
-	TurnResponsiveness = 5.0f;
+	// Fast and light - they should feel like they are scuttling at you, not marching.
+	MoveSpeed = 480.0f;
+	TurnResponsiveness = 6.0f;
 	StopDistance = 95.0f;
+
+	bSnapToGround = true;
+	GroundOffset = 38.0f;
 
 	if (CollisionSphere)
 	{

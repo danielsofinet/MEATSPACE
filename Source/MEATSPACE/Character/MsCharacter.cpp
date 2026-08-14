@@ -4,6 +4,7 @@
 #include "Combat/MsWeaponComponent.h"
 #include "Components/InputComponent.h"
 #include "Engine/Engine.h"
+#include "GameFramework/SpringArmComponent.h"
 #include "InputCoreTypes.h"
 #include "Net/UnrealNetwork.h"
 
@@ -22,6 +23,16 @@ void AMsCharacter::BeginPlay()
 	if (HasAuthority())
 	{
 		ActiveSlot = StartingSlot;
+	}
+
+	// The camera boom lives on the Blueprint (it came from the Third Person template), so we
+	// find it rather than creating our own. Keeps the template's camera behaviour intact.
+	if (bUseShoulderCamera)
+	{
+		if (USpringArmComponent* CameraBoom = FindComponentByClass<USpringArmComponent>())
+		{
+			CameraBoom->SocketOffset = ShoulderOffset;
+		}
 	}
 
 	if (IsLocallyControlled())

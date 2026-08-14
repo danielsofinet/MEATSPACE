@@ -59,20 +59,47 @@ void AMsTargetDummy::Tick(float DeltaSeconds)
 	FVector ToPlayer = Player->GetActorLocation() - GetActorLocation();
 	ToPlayer.Z = 0.0f;
 
-	if (ToPlayer.Size() <= ChaseStopDistance)
+	if (ToPlayer.Size() > ChaseStopDistance)
 	{
-		return;
+		// Horizontal only. Vertical position is the ground snap's job below.
+		const FVector Step = ToPlayer.GetSafeNormal() * ChaseSpeed * DeltaSeconds;
+
+		FHitResult Hit;
+		AddActorWorldOffset(Step, /*bSweep=*/true, &Hit);
+
+		// Slide along obstacles rather than sticking to them.
+		if (Hit.bBlockingHit)
+		{
+			AddActorWorldOffset(FVector::VectorPlaneProject(Step, Hit.Normal), /*bSweep=*/true);
+		}
+
+		// Face where it is going.
+		SetActorRotation(FMath::RInterpTo(GetActorRotation(),
+			ToPlayer.GetSafeNormal().Rotation(), DeltaSeconds, 5.0f));
 	}
 
-	const FVector Step = ToPlayer.GetSafeNormal() * ChaseSpeed * DeltaSeconds;
-
-	FHitResult Hit;
-	AddActorWorldOffset(Step, /*bSweep=*/true, &Hit);
-
-	// Slide along obstacles rather than sticking to them.
-	if (Hit.bBlockingHit)
+	if (bSnapToGround)
 	{
-		AddActorWorldOffset(FVector::VectorPlaneProject(Step, Hit.Normal), /*bSweep=*/true);
+		UWorld* World = GetWorld();
+		if (!World)
+		{
+			return;
+		}
+
+		const FVector Location = GetActorLocation();
+		const FVector Start = Location + FVector(0.0f, 0.0f, 200.0f);
+		const FVector End = Location - FVector(0.0f, 0.0f, 400.0f);
+
+		FCollisionQueryParams Params(SCENE_QUERY_STAT(MsDummyGround), /*bTraceComplex=*/false);
+		Params.AddIgnoredActor(this);
+
+		FHitResult GroundHit;
+		if (World->LineTraceSingleByChannel(GroundHit, Start, End, ECC_Visibility, Params))
+		{
+			FVector Snapped = Location;
+			Snapped.Z = GroundHit.ImpactPoint.Z + GroundOffset;
+			SetActorLocation(Snapped, /*bSweep=*/false);
+		}
 	}
 }
 

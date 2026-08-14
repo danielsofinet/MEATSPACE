@@ -3,6 +3,7 @@
 #include "Character/MsCharacter.h"
 #include "Combat/MsCombatTypes.h"
 #include "Engine/Canvas.h"
+#include "GameFramework/PlayerController.h"
 
 void AMsHUD::DrawHUD()
 {
@@ -25,8 +26,21 @@ void AMsHUD::DrawHUD()
 		return;
 	}
 
-	const float CentreX = Canvas->ClipX * 0.5f;
-	const float CentreY = Canvas->ClipY * 0.5f;
+	// Under the forced-perspective rig, aiming is cursor-driven - screen centre is the ground
+	// at the player's feet. So the marker follows the mouse, which is where shots actually go.
+	float CentreX = Canvas->ClipX * 0.5f;
+	float CentreY = Canvas->ClipY * 0.5f;
+
+	if (const APlayerController* PC = GetOwningPlayerController())
+	{
+		float MouseX = 0.0f;
+		float MouseY = 0.0f;
+		if (PC->GetMousePosition(MouseX, MouseY))
+		{
+			CentreX = MouseX;
+			CentreY = MouseY;
+		}
+	}
 
 	const float Half = DotSize * 0.5f;
 

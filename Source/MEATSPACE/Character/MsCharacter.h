@@ -7,13 +7,21 @@
 
 class UMsWeaponComponent;
 class UMsMeleeComponent;
+class USpringArmComponent;
+class UCameraComponent;
 
 /**
  * Base player character for MEATSPACE.
  *
- * Owns both weapons at once and routes attack input to whichever is equipped. Keeping both
- * components always-present (rather than spawning/destroying on swap) is what makes switching
- * instant - swapping only changes which one listens.
+ * Camera is a fixed forced-perspective rig, not a follow-cam: locked pitch and yaw, long
+ * boom, narrow FOV. The narrow FOV is what sells it - it compresses depth so the scene reads
+ * as near-isometric while still being a perspective camera, which keeps big skies and tall
+ * geometry looking dramatic instead of flat.
+ *
+ * Because the camera looks down, screen centre is the ground at your feet, so aiming is
+ * cursor-driven rather than centre-screen. The aim ray is deprojected from the mouse and
+ * traced into the world, which means putting the cursor on a flying clanker aims at it -
+ * a ground-plane projection could never hit anything airborne.
  */
 UCLASS()
 class MEATSPACE_API AMsCharacter : public ACharacter
@@ -22,6 +30,8 @@ class MEATSPACE_API AMsCharacter : public ACharacter
 
 public:
 	AMsCharacter();
+
+	virtual void Tick(float DeltaSeconds) override;
 
 	/** Anti-air. Hitscan. */
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
@@ -38,7 +48,15 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Meatspace|Combat")
 	void EquipSlot(EMsWeaponSlot NewSlot);
 
+	/**
+	 * World point under the mouse cursor, found by tracing the deprojected cursor ray.
+	 * Returns false when there is no local player controller (i.e. on remote proxies).
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Meatspace|Aim")
+	bool ComputeAimPoint(FVector& OutAimPoint) const;
+
 protected:
+	virtual void BeginPlay() override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
 	virtual void GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const override;
 
@@ -56,20 +74,58 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Combat")
 	EMsWeaponSlot StartingSlot = EMsWeaponSlot::Gun;
 
-	/**
-	 * Offsets the camera boom over the character's shoulder.
-	 *
-	 * The crosshair marks the centre of the screen because that is genuinely where shots go.
-	 * With a centred camera the character stands right on top of that point, so you are aiming
-	 * at your own back. Shifting the camera sideways clears the line of sight without changing
-	 * where the gun actually shoots.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera")
-	bool bUseShoulderCamera = true;
+	// --- Camera rig. All live-tunable; this is the section to play with. ---
 
-	/** X = forward, Y = right, Z = up. Raise Y to push the character further off-centre. */
+	/** Take over the Blueprint's camera boom and drive it as a fixed rig. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera")
-	FVector ShoulderOffset = FVector(0.0f, 75.0f, 45.0f);
+	bool bUseFixedCamera = true;
+
+	/** Downward tilt in degrees. 90 would be straight down; 50-60 reads as forced perspective. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "5.0", ClampMax = "89.0"))
+	float CameraPitch = 52.0f;
+
+	/** World yaw the camera looks along. Rotate the whole view by changing this. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera")
+	float CameraYaw = 0.0f;
+
+	/** Boom length. Bigger = further out = more battlefield visible. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "100.0"))
+	float CameraDistance = 1650.0f;
+
+	/**
+	 * Narrow FOV is what creates the forced-perspective look. 90 is a normal game camera;
+	 * 30-45 flattens the scene toward isometric while keeping perspective depth.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "5.0", ClampMax = "120.0"))
+	float CameraFOV = 38.0f;
+
+	/** How lazily the camera follows. Lower = floatier, higher = glued to the character. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "0.0"))
+	float CameraLagSpeed = 9.0f;
+
+	/** Scroll wheel zoom limits. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Zoom", meta = (ClampMin = "100.0"))
+	float MinCameraDistance = 500.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Zoom", meta = (ClampMin = "100.0"))
+	float MaxCameraDistance = 3200.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Zoom", meta = (ClampMin = "10.0"))
+	float ZoomStep = 160.0f;
+
+	// --- Aiming ---
+
+	/** How far the cursor ray reaches before giving up and aiming at empty space. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim", meta = (ClampMin = "100.0"))
+	float AimTraceDistance = 25000.0f;
+
+	/** Turn the character to face the cursor. Twin-stick style. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim")
+	bool bFaceCursor = true;
+
+	/** How fast the character snaps around to the cursor. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim", meta = (ClampMin = "0.1"))
+	float FaceCursorSpeed = 18.0f;
 
 	UFUNCTION()
 	void OnRep_ActiveSlot();
@@ -77,14 +133,24 @@ protected:
 	UFUNCTION(Server, Reliable)
 	void ServerEquipSlot(EMsWeaponSlot NewSlot);
 
-	virtual void BeginPlay() override;
+	/** Pushes the camera properties above onto the Blueprint's boom and camera. */
+	void ApplyCameraSettings();
 
 private:
 	void OnAttackPressed();
 	void OnAttackReleased();
 	void OnSelectSword();
 	void OnSelectGun();
+	void OnZoomIn();
+	void OnZoomOut();
 
 	/** On-screen readout of the current weapon. Debug only. */
 	void ShowWeaponFeedback() const;
+
+	/** Found on the Blueprint rather than created here, so the template's rig stays intact. */
+	UPROPERTY(Transient)
+	TObjectPtr<USpringArmComponent> CameraBoom;
+
+	UPROPERTY(Transient)
+	TObjectPtr<UCameraComponent> FollowCamera;
 };

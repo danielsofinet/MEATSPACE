@@ -1,5 +1,6 @@
 #include "Combat/MsWeaponComponent.h"
 
+#include "Character/MsCharacter.h"
 #include "DrawDebugHelpers.h"
 #include "Engine/DamageEvents.h"
 #include "Engine/World.h"
@@ -65,13 +66,35 @@ void UMsWeaponComponent::FireOnce()
 		return;
 	}
 
-	FVector ViewLocation;
-	FRotator ViewRotation;
-	OwnerController->GetPlayerViewPoint(ViewLocation, ViewRotation);
-
 	LastFireTime = World->GetTimeSeconds();
 
-	FVector AimDir = ViewRotation.Vector();
+	// Shots originate at the muzzle and travel toward whatever the cursor is over. Firing
+	// along the camera's forward axis would be wrong under the forced-perspective rig - the
+	// camera looks down at the ground, so every shot would hit the floor by the player's feet.
+	FVector TraceStart = GetMuzzleLocation();
+	FVector AimDir;
+
+	FVector AimPoint;
+	const AMsCharacter* MsOwner = Cast<AMsCharacter>(OwnerPawn);
+	if (MsOwner && MsOwner->ComputeAimPoint(AimPoint))
+	{
+		AimDir = (AimPoint - TraceStart).GetSafeNormal();
+	}
+	else
+	{
+		// No cursor available (remote proxy, or a non-MEATSPACE pawn). Fall back to the view.
+		FVector ViewLocation;
+		FRotator ViewRotation;
+		OwnerController->GetPlayerViewPoint(ViewLocation, ViewRotation);
+		TraceStart = ViewLocation;
+		AimDir = ViewRotation.Vector();
+	}
+
+	if (AimDir.IsNearlyZero())
+	{
+		return;
+	}
+
 	if (SpreadDegrees > 0.0f)
 	{
 		AimDir = FMath::VRandCone(AimDir, FMath::DegreesToRadians(SpreadDegrees));
@@ -81,12 +104,12 @@ void UMsWeaponComponent::FireOnce()
 	if (OwnerPawn->IsLocallyControlled())
 	{
 		FHitResult LocalHit;
-		const bool bLocalHit = TraceShot(ViewLocation, AimDir, LocalHit);
-		PlayFireFX(bLocalHit ? LocalHit.ImpactPoint : ViewLocation + AimDir * Range, bLocalHit);
+		const bool bLocalHit = TraceShot(TraceStart, AimDir, LocalHit);
+		PlayFireFX(bLocalHit ? LocalHit.ImpactPoint : TraceStart + AimDir * Range, bLocalHit);
 	}
 
 	// On the listen-server host this executes inline; on a client it goes over the wire.
-	ServerFire(ViewLocation, AimDir);
+	ServerFire(TraceStart, AimDir);
 }
 
 void UMsWeaponComponent::ServerFire_Implementation(const FVector_NetQuantize& TraceStart, const FVector_NetQuantizeNormal& AimDir)

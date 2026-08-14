@@ -35,6 +35,39 @@ separate models. So this is *the* character.
   he must be readable as *one recognisable shape*. Save the detail for cutscenes and zoom
 - Budget: 30–60k tris is comfortable (skeletal meshes don't use Nanite)
 
+#### Built for customisation — decide these now, not later
+
+The game will offer **skin tone** and **body type** at character creation, plus more later.
+Build **one body now**; the second comes later and is cheap *only if* the following hold.
+These are the two mistakes that are genuinely expensive to retrofit:
+
+**1. Skin must be its own material slot.**
+Separate from clothing, gear and hair. Skin tone is applied at runtime as a material
+parameter, so if skin shares a material with the jacket, tinting the skin tints the jacket.
+One mesh then covers every skin tone with no extra art.
+
+- Skin material needs a **colour/tint input** I can drive (I'll wire the parameter; you just
+  need the slot to exist and the base texture to tint sensibly — avoid baking a specific skin
+  tone into the albedo, keep it neutral and let the tint do the work)
+
+**2. Rig to the UE5 Mannequin skeleton, and keep the rig reusable.**
+Body type two will be a duplicate of this mesh with adjusted proportions, **rigged to the same
+skeleton**. Same skeleton means every animation works on both bodies forever, with no extra
+animation work — this is the whole reason the second body is cheap.
+
+**3. Keep UVs consistent between bodies when the second arrives.**
+Easy while modelling, painful to retrofit. If both bodies share a UV layout they share
+textures, so every future skin/outfit is authored once instead of twice.
+
+**Design note:** consider offering **body type** and **pronouns/voice** as *separate* choices
+rather than one "sex" setting driving both. Technically identical — two meshes either way —
+but it means a player is not forced to pick a body to get the pronouns they want. Cheap to
+decide now, awkward to retrofit because it changes the saved data model.
+
+The runtime side (`MsAppearance`: body type + skin tone, applied on spawn, replicated for
+co-op, saved to profile) is roughly an hour of work and gets built once there is a character
+to preview it on.
+
 ### 2. Small clanker — most-seen asset in the game
 
 - **~70 units tall**, footprint fitting a **35-unit-radius sphere** (that's its collision)

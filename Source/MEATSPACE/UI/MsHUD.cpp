@@ -2,6 +2,7 @@
 
 #include "Character/MsCharacter.h"
 #include "Combat/MsCombatTypes.h"
+#include "Combat/MsGrenadeComponent.h"
 #include "Combat/MsHealthComponent.h"
 #include "Engine/Canvas.h"
 #include "GameFramework/PlayerController.h"
@@ -99,6 +100,29 @@ void AMsHUD::DrawHealthBar(const AMsCharacter* Character)
 		// should never have to look directly at the bar to know you are in trouble.
 		const FLinearColor FillColor = FMath::Lerp(HealthLowColor, HealthHighColor, Percent);
 		DrawRect(FillColor, BarX, BarY, BarWidth * Percent, HealthBarHeight);
+	}
+
+	// Grenade readiness, directly under the health bar. Drains as it recharges, so "can I
+	// throw" is answerable at a glance without reading a number.
+	if (const UMsGrenadeComponent* GrenadeComp = Character->GetGrenade())
+	{
+		const float Cooling = FMath::Clamp(GrenadeComp->GetCooldownFraction(), 0.0f, 1.0f);
+		const float PipY = BarY + HealthBarHeight + ShieldBarGap;
+		const float PipHeight = 6.0f;
+
+		DrawRect(HealthBarBackColor,
+			BarX - Padding, PipY - Padding,
+			BarWidth + Padding * 2.0f, PipHeight + Padding * 2.0f);
+
+		const float ReadyFraction = 1.0f - Cooling;
+		if (ReadyFraction > 0.0f)
+		{
+			const FLinearColor PipColor = Cooling > 0.0f
+				? FLinearColor(0.55f, 0.55f, 0.6f, 0.9f)
+				: FLinearColor(1.0f, 0.85f, 0.25f, 0.95f);
+
+			DrawRect(PipColor, BarX, PipY, BarWidth * ReadyFraction, PipHeight);
+		}
 	}
 
 	// Shield above health. Separate bar rather than a shared one, because the two behave

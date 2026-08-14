@@ -28,8 +28,43 @@ public:
 
 protected:
 	virtual void BeginPlay() override;
+	virtual void Tick(float DeltaSeconds) override;
 
 	virtual FVector ComputeMoveDirection(float DeltaSeconds, const APawn* TargetPlayer) override;
+
+	// --- Weapon ---
+	//
+	// Telegraphed hitscan rather than an instant shot. The wind-up is the whole point: it
+	// makes the attack dodgeable by moving, which is what turns flyers from an annoyance into
+	// something you must actually respond to. An instant unavoidable shot would just be a
+	// health tax.
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer|Weapon")
+	bool bCanShoot = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer|Weapon", meta = (ClampMin = "0.0"))
+	float ShotDamage = 9.0f;
+
+	/** Seconds between shots. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer|Weapon", meta = (ClampMin = "0.1"))
+	float FireInterval = 3.2f;
+
+	/** Wind-up before firing. Your window to break line of sight or move. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer|Weapon", meta = (ClampMin = "0.05"))
+	float TelegraphTime = 0.9f;
+
+	/** Maximum engagement distance. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer|Weapon", meta = (ClampMin = "100.0"))
+	float FireRange = 2200.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer|Weapon")
+	bool bDrawDebugShot = true;
+
+	/** Fires the shot at the end of the telegraph. Server only. */
+	void FireAtPlayer(APawn* TargetPlayer);
+
+	UFUNCTION(NetMulticast, Unreliable)
+	void MulticastShotFX(const FVector_NetQuantize& From, const FVector_NetQuantize& To, bool bHit);
 
 	/** How high above the player it tries to sit. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer")
@@ -43,9 +78,13 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer", meta = (ClampMin = "0.0"))
 	float RadialWeight = 1.0f;
 
-	/** How hard it slides sideways. This is the main source of "annoying to hit". */
+	/**
+	 * How hard it slides sideways. Kept moderate: a flyer that is genuinely hard to hit stops
+	 * being a target and becomes a chore, especially once it can shoot back and you actually
+	 * need to kill it.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer", meta = (ClampMin = "0.0"))
-	float StrafeWeight = 1.3f;
+	float StrafeWeight = 0.65f;
 
 	/** Speed of the sideways oscillation. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer", meta = (ClampMin = "0.0"))
@@ -64,19 +103,19 @@ protected:
 
 	/** Shortest gap between direction re-rolls. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer|Erratic", meta = (ClampMin = "0.05"))
-	float MinWanderInterval = 0.5f;
+	float MinWanderInterval = 1.0f;
 
 	/** Longest gap between direction re-rolls. Wider spread = less predictable. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer|Erratic", meta = (ClampMin = "0.05"))
-	float MaxWanderInterval = 1.6f;
+	float MaxWanderInterval = 2.6f;
 
 	/** How far a re-roll can throw it sideways. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer|Erratic", meta = (ClampMin = "0.0"))
-	float WanderStrength = 1.2f;
+	float WanderStrength = 0.45f;
 
 	/** How far a re-roll can throw its hover height, in cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Flyer|Erratic", meta = (ClampMin = "0.0"))
-	float VerticalWanderRange = 150.0f;
+	float VerticalWanderRange = 90.0f;
 
 private:
 	void RerollWander();
@@ -91,4 +130,8 @@ private:
 
 	/** Per-instance phase so several flyers never oscillate in lockstep. */
 	float PhaseOffset = 0.0f;
+
+	float NextFireTime = 0.0f;
+	float TelegraphEndTime = 0.0f;
+	bool bTelegraphing = false;
 };

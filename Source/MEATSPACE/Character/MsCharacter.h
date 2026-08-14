@@ -8,6 +8,7 @@
 class UMsWeaponComponent;
 class UMsMeleeComponent;
 class UMsHealthComponent;
+class UMsGrenadeComponent;
 class USpringArmComponent;
 class UCameraComponent;
 
@@ -44,6 +45,19 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
 	UMsHealthComponent* GetHealth() const { return HealthComponent; }
+
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
+	UMsGrenadeComponent* GetGrenade() const { return Grenade; }
+
+	/**
+	 * Camera zoom. No longer bound to the scroll wheel - scroll swaps weapons now - but kept
+	 * callable so it can be rebound to a key later.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Meatspace|Camera")
+	void ZoomIn();
+
+	UFUNCTION(BlueprintCallable, Category = "Meatspace|Camera")
+	void ZoomOut();
 
 	/** 0..1, fades after taking damage. Drives the HUD's hit flash. */
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
@@ -104,6 +118,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Meatspace|Combat")
 	TObjectPtr<UMsHealthComponent> HealthComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Meatspace|Combat")
+	TObjectPtr<UMsGrenadeComponent> Grenade;
 
 	/** Seconds spent dead before respawning. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Combat", meta = (ClampMin = "0.1"))
@@ -208,7 +225,7 @@ protected:
 
 	/** Dullness while aiming. Lower than hipfire - precision wants a rigid camera. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float AimCameraDullness = 0.30f;
+	float AimCameraDullness = 0.15f;
 
 	/** How fast the character's body swings round to face where the camera looks. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.1"))
@@ -324,9 +341,11 @@ private:
 	void OnAttackReleased();
 	void OnSelectSword();
 	void OnSelectGun();
-	void OnZoomIn();
-	void OnZoomOut();
 	void OnToggleTuning();
+	void OnThrowGrenade();
+
+	/** Scroll cycles between the two weapons. */
+	void OnCycleWeapon();
 	void OnAimPressed();
 	void OnAimReleased();
 

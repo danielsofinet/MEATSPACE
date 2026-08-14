@@ -3,9 +3,11 @@
 #include "Combat/MsHealthComponent.h"
 #include "Components/SphereComponent.h"
 #include "Components/StaticMeshComponent.h"
+#include "DrawDebugHelpers.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "GameFramework/Pawn.h"
+#include "Kismet/GameplayStatics.h"
 #include "UObject/ConstructorHelpers.h"
 
 AMsClankerFlyer::AMsClankerFlyer()
@@ -59,6 +61,121 @@ void AMsClankerFlyer::RerollWander()
 	const float MinInterval = FMath::Min(MinWanderInterval, MaxWanderInterval);
 	const float MaxInterval = FMath::Max(MinWanderInterval, MaxWanderInterval);
 	NextWanderTime = Now + FMath::FRandRange(MinInterval, MaxInterval);
+}
+
+void AMsClankerFlyer::Tick(float DeltaSeconds)
+{
+	Super::Tick(DeltaSeconds);
+
+	UWorld* World = GetWorld();
+	if (!World || !HasAuthority() || !bCanShoot)
+	{
+		return;
+	}
+
+	if (HealthComponent && HealthComponent->IsDead())
+	{
+		return;
+	}
+
+	APawn* TargetPlayer = FindTargetPlayer();
+	if (!TargetPlayer)
+	{
+		bTelegraphing = false;
+		return;
+	}
+
+	const FVector MyLocation = GetActorLocation();
+	const FVector TargetLocation = TargetPlayer->GetActorLocation();
+
+	if (FVector::Dist(MyLocation, TargetLocation) > FireRange)
+	{
+		bTelegraphing = false;
+		return;
+	}
+
+	const float Now = World->GetTimeSeconds();
+
+	if (!bTelegraphing)
+	{
+		if (Now >= NextFireTime)
+		{
+			bTelegraphing = true;
+			TelegraphEndTime = Now + TelegraphTime;
+		}
+	}
+	else
+	{
+#if ENABLE_DRAW_DEBUG
+		if (bDrawDebugShot)
+		{
+			// The wind-up must be visible or the attack is just unexplained damage. This is a
+			// placeholder for a real charging effect.
+			const float Charge = 1.0f - FMath::Clamp((TelegraphEndTime - Now) / FMath::Max(TelegraphTime, 0.01f), 0.0f, 1.0f);
+			DrawDebugLine(World, MyLocation, TargetLocation,
+				FColor(255, (uint8)(200 * (1.0f - Charge)), 40), false, -1.0f, 0, 1.0f + Charge * 3.0f);
+		}
+#endif
+
+		if (Now >= TelegraphEndTime)
+		{
+			bTelegraphing = false;
+			NextFireTime = Now + FireInterval;
+			FireAtPlayer(TargetPlayer);
+		}
+	}
+}
+
+void AMsClankerFlyer::FireAtPlayer(APawn* TargetPlayer)
+{
+	UWorld* World = GetWorld();
+	if (!World || !TargetPlayer)
+	{
+		return;
+	}
+
+	const FVector From = GetActorLocation();
+	const FVector To = TargetPlayer->GetActorLocation();
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(MsFlyerShot), /*bTraceComplex=*/false);
+	Params.AddIgnoredActor(this);
+
+	// Traced rather than applied directly, so moving behind cover during the telegraph
+	// actually saves you.
+	FHitResult Hit;
+	const bool bBlocked = World->LineTraceSingleByChannel(Hit, From, To, ECC_Visibility, Params);
+
+	bool bHitPlayer = false;
+	if (bBlocked && Hit.GetActor() == TargetPlayer)
+	{
+		bHitPlayer = true;
+		UGameplayStatics::ApplyDamage(TargetPlayer, ShotDamage, nullptr, this, nullptr);
+	}
+	else if (!bBlocked)
+	{
+		// Nothing in the way at all - count it as a clean hit.
+		bHitPlayer = true;
+		UGameplayStatics::ApplyDamage(TargetPlayer, ShotDamage, nullptr, this, nullptr);
+	}
+
+	MulticastShotFX(From, bBlocked ? FVector(Hit.ImpactPoint) : To, bHitPlayer);
+}
+
+void AMsClankerFlyer::MulticastShotFX_Implementation(const FVector_NetQuantize& From,
+	const FVector_NetQuantize& To, bool bHit)
+{
+#if ENABLE_DRAW_DEBUG
+	if (!bDrawDebugShot)
+	{
+		return;
+	}
+
+	if (UWorld* World = GetWorld())
+	{
+		DrawDebugLine(World, FVector(From), FVector(To),
+			bHit ? FColor(255, 80, 40) : FColor(200, 160, 60), false, 0.2f, 0, 4.0f);
+	}
+#endif
 }
 
 FVector AMsClankerFlyer::ComputeMoveDirection(float DeltaSeconds, const APawn* TargetPlayer)

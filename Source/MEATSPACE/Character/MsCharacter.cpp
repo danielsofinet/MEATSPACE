@@ -1,6 +1,7 @@
 #include "Character/MsCharacter.h"
 
 #include "Camera/CameraComponent.h"
+#include "Combat/MsGrenadeComponent.h"
 #include "Combat/MsHealthComponent.h"
 #include "Combat/MsMeleeComponent.h"
 #include "Combat/MsWeaponComponent.h"
@@ -51,6 +52,8 @@ AMsCharacter::AMsCharacter()
 	HealthComponent->ShieldAbsorbFraction = 0.6f;
 	HealthComponent->ShieldRegenDelay = 3.0f;
 	HealthComponent->ShieldRegenRate = 14.0f;
+
+	Grenade = CreateDefaultSubobject<UMsGrenadeComponent>(TEXT("Grenade"));
 }
 
 void AMsCharacter::BeginPlay()
@@ -388,23 +391,8 @@ void AMsCharacter::TickCameraTuning(float DeltaSeconds)
 		Socket.Y -= 60.0f * DeltaSeconds;
 	}
 
-	if (PC->IsInputKeyDown(EKeys::G))
-	{
-		AimFOVMultiplier = FMath::Clamp(AimFOVMultiplier - 0.35f * DeltaSeconds, 0.1f, 2.0f);
-	}
-	if (PC->IsInputKeyDown(EKeys::H))
-	{
-		AimFOVMultiplier = FMath::Clamp(AimFOVMultiplier + 0.35f * DeltaSeconds, 0.1f, 2.0f);
-	}
-
-	if (PC->IsInputKeyDown(EKeys::V))
-	{
-		AimDistanceMultiplier = FMath::Clamp(AimDistanceMultiplier - 0.35f * DeltaSeconds, 0.1f, 2.0f);
-	}
-	if (PC->IsInputKeyDown(EKeys::B))
-	{
-		AimDistanceMultiplier = FMath::Clamp(AimDistanceMultiplier + 0.35f * DeltaSeconds, 0.1f, 2.0f);
-	}
+	// ADS FOV and distance no longer have hotkeys - G is the grenade now, and those two values
+	// are settled. Edit them in the Blueprint's Class Defaults if they need changing.
 
 	// Arrows move whichever reticle is currently in force.
 	FVector2D& Reticle = ActiveCrosshairOffset();
@@ -628,7 +616,7 @@ void AMsCharacter::ShowCameraReadout() const
 		FString::Printf(TEXT("RETICLE x %.3f  y %.3f   [arrows]     SHOULDER Y %.0f   [I out / K in]"),
 			Reticle.X, Reticle.Y, Socket.Y));
 	GEngine->AddOnScreenDebugMessage(9007, 0.0f, bAiming ? FColor::Cyan : FColor::Silver,
-		FString::Printf(TEXT("ADS FOVx %.2f  [G / H]     DISTx %.2f  [V / B]%s"),
+		FString::Printf(TEXT("ADS FOVx %.2f   DISTx %.2f%s"),
 			AimFOVMultiplier, AimDistanceMultiplier, bAiming ? TEXT("   << AIMING") : TEXT("")));
 	GEngine->AddOnScreenDebugMessage(9006, 0.0f, FColor::Green,
 		TEXT("--- CAMERA TUNING (P to hide) ---"));
@@ -675,20 +663,39 @@ void AMsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 	PlayerInputComponent->BindKey(EKeys::One, IE_Pressed, this, &AMsCharacter::OnSelectSword);
 	PlayerInputComponent->BindKey(EKeys::Two, IE_Pressed, this, &AMsCharacter::OnSelectGun);
 
-	PlayerInputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &AMsCharacter::OnZoomIn);
-	PlayerInputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &AMsCharacter::OnZoomOut);
+	// Scroll swaps weapons. Camera zoom is still available via ZoomIn/ZoomOut for a future
+	// keybind, it just no longer owns the wheel - swapping mid-fight matters more.
+	PlayerInputComponent->BindKey(EKeys::MouseScrollUp, IE_Pressed, this, &AMsCharacter::OnCycleWeapon);
+	PlayerInputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &AMsCharacter::OnCycleWeapon);
+
+	PlayerInputComponent->BindKey(EKeys::G, IE_Pressed, this, &AMsCharacter::OnThrowGrenade);
 
 	PlayerInputComponent->BindKey(EKeys::P, IE_Pressed, this, &AMsCharacter::OnToggleTuning);
 }
 
-void AMsCharacter::OnZoomIn()
+void AMsCharacter::ZoomIn()
 {
 	CameraDistance = FMath::Clamp(CameraDistance - ZoomStep, MinCameraDistance, MaxCameraDistance);
 }
 
-void AMsCharacter::OnZoomOut()
+void AMsCharacter::ZoomOut()
 {
 	CameraDistance = FMath::Clamp(CameraDistance + ZoomStep, MinCameraDistance, MaxCameraDistance);
+}
+
+void AMsCharacter::OnCycleWeapon()
+{
+	// Only two weapons, so either scroll direction just toggles. When there are more, this
+	// becomes a proper indexed cycle that respects direction.
+	EquipSlot(ActiveSlot == EMsWeaponSlot::Gun ? EMsWeaponSlot::Sword : EMsWeaponSlot::Gun);
+}
+
+void AMsCharacter::OnThrowGrenade()
+{
+	if (Grenade)
+	{
+		Grenade->ThrowGrenade();
+	}
 }
 
 void AMsCharacter::OnAttackPressed()

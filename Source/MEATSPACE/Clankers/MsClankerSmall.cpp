@@ -31,9 +31,10 @@ AMsClankerSmall::AMsClankerSmall()
 
 	if (HealthComponent)
 	{
-		// Two sword hits, or a short burst of gunfire.
-		HealthComponent->MaxHealth = 60.0f;
-		HealthComponent->Health = 60.0f;
+		// One shot from anything. These are threatening by number, not by durability - and a
+		// swarm you can carve through is far more satisfying than one you have to grind.
+		HealthComponent->MaxHealth = 10.0f;
+		HealthComponent->Health = 10.0f;
 	}
 }
 

@@ -64,8 +64,17 @@ public:
 
 	/** Called by the weapon and sword so the camera reacts to what you are doing. */
 	void OnWeaponFired();
+	void OnWeaponHit();
 	void OnSwordSwing();
 	void OnSwordHit();
+
+	/** True while right mouse is held with the gun equipped. */
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Aim")
+	bool IsAiming() const;
+
+	/** Spread multiplier the weapon should apply right now. */
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Aim")
+	float GetAimSpreadMultiplier() const { return IsAiming() ? AimSpreadMultiplier : 1.0f; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -92,9 +101,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera")
 	bool bUseFixedCamera = true;
 
-	/** Downward tilt in degrees. 90 would be straight down; 50-60 reads as forced perspective. */
+	/**
+	 * Downward tilt in degrees. Low values keep the horizon and sky in frame, which is what
+	 * this game wants - dialled in by eye at 24.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "5.0", ClampMax = "89.0"))
-	float CameraPitch = 52.0f;
+	float CameraPitch = 24.0f;
 
 	/** World yaw the camera looks along. Rotate the whole view by changing this. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera")
@@ -102,14 +114,14 @@ protected:
 
 	/** Boom length. Bigger = further out = more battlefield visible. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "100.0"))
-	float CameraDistance = 1650.0f;
+	float CameraDistance = 3090.0f;
 
 	/**
 	 * Narrow FOV is what creates the forced-perspective look. 90 is a normal game camera;
 	 * 30-45 flattens the scene toward isometric while keeping perspective depth.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "5.0", ClampMax = "120.0"))
-	float CameraFOV = 38.0f;
+	float CameraFOV = 40.6f;
 
 	/** How lazily the camera follows. Lower = floatier, higher = glued to the character. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "0.0"))
@@ -120,7 +132,7 @@ protected:
 	float MinCameraDistance = 500.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Zoom", meta = (ClampMin = "100.0"))
-	float MaxCameraDistance = 3200.0f;
+	float MaxCameraDistance = 6000.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Zoom", meta = (ClampMin = "10.0"))
 	float ZoomStep = 160.0f;
@@ -128,17 +140,38 @@ protected:
 	// --- Mouse-follow. The camera leans toward the cursor instead of staying centred. ---
 
 	/**
-	 * How far the camera drifts toward the cursor, as a fraction of the distance to it.
-	 * 0 = camera stays locked on the character. 1 = camera sits on the cursor.
-	 * Around 0.3-0.4 is the usual sweet spot: you see further in the direction you are
-	 * aiming without losing sight of your own character.
+	 * How far the camera leans toward the cursor, as a fraction of MaxPeekDistance when the
+	 * cursor is at the screen edge. 0 disables it entirely.
+	 *
+	 * Driven by cursor position ON SCREEN, not by the world point under it. The world-point
+	 * version felt wrong for a reason: at a low camera pitch, the point under the cursor can
+	 * be thousands of units away near the horizon, so the lean pinned itself to the clamp and
+	 * lurched. Screen space is linear and predictable - edge of screen is always full lean.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Mouse", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float MousePeekStrength = 0.35f;
+	float MousePeekStrength = 0.30f;
 
-	/** Hard cap on the lean, in cm, so the character never leaves the frame. */
+	/** Lean at full deflection, in cm. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Mouse", meta = (ClampMin = "0.0"))
 	float MaxPeekDistance = 700.0f;
+
+	/**
+	 * Fraction of the screen around the centre where the camera does not move at all.
+	 * Stops the view twitching while you make small aim corrections.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Mouse", meta = (ClampMin = "0.0", ClampMax = "0.9"))
+	float PeekDeadzone = 0.15f;
+
+	/** Scales the sideways lean independently. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Mouse", meta = (ClampMin = "0.0"))
+	float PeekHorizontalScale = 1.0f;
+
+	/**
+	 * Scales the forward/back lean independently. Often worth keeping lower than horizontal -
+	 * vertical camera drift is much more disorienting than sideways drift.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Mouse", meta = (ClampMin = "0.0"))
+	float PeekVerticalScale = 0.6f;
 
 	/** How lazily the lean follows the cursor. Lower = smoother, higher = snappier. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Mouse", meta = (ClampMin = "0.1"))
@@ -151,6 +184,32 @@ protected:
 	/** Degrees per second while Q or E is held. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Mouse", meta = (ClampMin = "1.0"))
 	float CameraRotateRate = 90.0f;
+
+	// --- Aim-down-sights. Hold right mouse with the gun out. ---
+
+	/** Enables the right-mouse zoom. Only applies while the gun is equipped. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom")
+	bool bAllowAimZoom = true;
+
+	/** FOV multiplier while aiming. 0.6 of 40 gives a 24 degree FOV - a real magnification. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.1", ClampMax = "2.0"))
+	float AimFOVMultiplier = 0.62f;
+
+	/** Boom length multiplier while aiming. Under 1 pulls the camera in toward the character. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.1", ClampMax = "2.0"))
+	float AimDistanceMultiplier = 0.80f;
+
+	/** How fast the zoom eases in and out. Higher = snappier. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.5"))
+	float AimTransitionSpeed = 8.0f;
+
+	/** Mouse-follow is scaled by this while aiming - usually you want the camera steadier. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float AimPeekMultiplier = 0.35f;
+
+	/** Weapon spread is multiplied by this while aiming. Aiming should reward you. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float AimSpreadMultiplier = 0.25f;
 
 	// --- Camera life. Idle sway plus reactive shake. ---
 
@@ -189,13 +248,22 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Juice", meta = (ClampMin = "0.1"))
 	float ShakeDecayRate = 2.4f;
 
-	/** Trauma added per gunshot. Small - it fires eight times a second. */
+	/** Recoil per gunshot. Small - it fires eight times a second. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Juice", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float FireShake = 0.14f;
+	float FireShake = 0.10f;
 
-	/** Trauma added when a swing starts. The weight of the swing itself. */
+	/** Extra trauma when a shot actually connects, so hits read differently from misses. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Juice", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float SwordSwingShake = 0.20f;
+	float GunHitShake = 0.10f;
+
+	/**
+	 * Trauma when a swing STARTS, whether or not it connects. Zero by design: swinging
+	 * through empty air should not move the camera, or every whiff feels like a hit and
+	 * the impact loses all its meaning. Raise it only if the sword should feel heavy to
+	 * merely swing.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Juice", meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float SwordSwingShake = 0.0f;
 
 	/** Trauma added when the blade actually connects. Should be clearly bigger than the swing. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Juice", meta = (ClampMin = "0.0", ClampMax = "1.0"))
@@ -265,6 +333,15 @@ private:
 	void OnZoomIn();
 	void OnZoomOut();
 	void OnToggleTuning();
+	void OnAimPressed();
+	void OnAimReleased();
+
+	/** Right mouse held. Zoom only actually engages when the gun is out. */
+	bool bAimHeld = false;
+
+	/** Eased toward the aim targets so the zoom is smooth rather than instant. */
+	float CurrentFOV = 0.0f;
+	float CurrentDistance = 0.0f;
 
 	/** Smoothed camera lean, kept between frames so it eases rather than snaps. */
 	FVector CurrentPeekOffset = FVector::ZeroVector;

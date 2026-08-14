@@ -61,11 +61,45 @@ void AMsCharacter::BeginPlay()
 	}
 }
 
+bool AMsCharacter::IsAiming() const
+{
+	// Right mouse only zooms with the gun out. The sword will want its own right-mouse
+	// behaviour later - a block or a dash - so this stays weapon-gated from the start.
+	return bAllowAimZoom && bAimHeld && ActiveSlot == EMsWeaponSlot::Gun;
+}
+
+void AMsCharacter::OnAimPressed()
+{
+	bAimHeld = true;
+}
+
+void AMsCharacter::OnAimReleased()
+{
+	bAimHeld = false;
+}
+
 void AMsCharacter::ApplyCameraSettings()
 {
 	if (!bUseFixedCamera)
 	{
 		return;
+	}
+
+	// Ease FOV and boom length toward their targets so aiming zooms smoothly. Initialised on
+	// the first frame so the camera does not lerp up from zero when play starts.
+	const float TargetFOV = IsAiming() ? CameraFOV * AimFOVMultiplier : CameraFOV;
+	const float TargetDistance = IsAiming() ? CameraDistance * AimDistanceMultiplier : CameraDistance;
+
+	if (CurrentFOV <= 0.0f || CurrentDistance <= 0.0f)
+	{
+		CurrentFOV = TargetFOV;
+		CurrentDistance = TargetDistance;
+	}
+	else
+	{
+		const float DeltaSeconds = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.0f;
+		CurrentFOV = FMath::FInterpTo(CurrentFOV, TargetFOV, DeltaSeconds, AimTransitionSpeed);
+		CurrentDistance = FMath::FInterpTo(CurrentDistance, TargetDistance, DeltaSeconds, AimTransitionSpeed);
 	}
 
 	if (CachedCameraBoom)
@@ -79,9 +113,8 @@ void AMsCharacter::ApplyCameraSettings()
 		CachedCameraBoom->SetUsingAbsoluteRotation(true);
 		CachedCameraBoom->SetWorldRotation(FRotator(-CameraPitch, CameraYaw, 0.0f));
 
-		CachedCameraBoom->TargetArmLength = CameraDistance;
+		CachedCameraBoom->TargetArmLength = CurrentDistance;
 		CachedCameraBoom->SocketOffset = FVector::ZeroVector;
-		CachedCameraBoom->TargetOffset = FVector::ZeroVector;
 
 		// Without this the boom collides with level geometry behind the character and snaps
 		// the camera in - unusable for a top-down rig where the boom is always inside walls.
@@ -93,7 +126,7 @@ void AMsCharacter::ApplyCameraSettings()
 
 	if (CachedFollowCamera)
 	{
-		CachedFollowCamera->SetFieldOfView(CameraFOV);
+		CachedFollowCamera->SetFieldOfView(CurrentFOV);
 		CachedFollowCamera->bUsePawnControlRotation = false;
 	}
 }
@@ -196,6 +229,25 @@ void AMsCharacter::TickCameraTuning(float DeltaSeconds)
 		MousePeekStrength = FMath::Clamp(MousePeekStrength + PeekAdjustRate * DeltaSeconds, 0.0f, 1.0f);
 	}
 
+	// Aim-zoom tuning. Hold right mouse while adjusting to see it applied live.
+	if (PC->IsInputKeyDown(EKeys::LeftBracket))
+	{
+		AimFOVMultiplier = FMath::Clamp(AimFOVMultiplier - 0.35f * DeltaSeconds, 0.1f, 2.0f);
+	}
+	if (PC->IsInputKeyDown(EKeys::RightBracket))
+	{
+		AimFOVMultiplier = FMath::Clamp(AimFOVMultiplier + 0.35f * DeltaSeconds, 0.1f, 2.0f);
+	}
+
+	if (PC->IsInputKeyDown(EKeys::Semicolon))
+	{
+		AimDistanceMultiplier = FMath::Clamp(AimDistanceMultiplier - 0.35f * DeltaSeconds, 0.1f, 2.0f);
+	}
+	if (PC->IsInputKeyDown(EKeys::Quote))
+	{
+		AimDistanceMultiplier = FMath::Clamp(AimDistanceMultiplier + 0.35f * DeltaSeconds, 0.1f, 2.0f);
+	}
+
 	ShowCameraReadout();
 }
 
@@ -221,20 +273,62 @@ void AMsCharacter::TickCameraFollow(float DeltaSeconds)
 		}
 	}
 
-	// Lean toward the cursor. TargetOffset is world space, which is what we want here - the
-	// lean should follow the cursor on the ground plane, not tilt with the boom.
+	// Lean toward the cursor, driven by where the cursor sits ON SCREEN.
+	//
+	// The previous version used the world point under the cursor, which broke at low camera
+	// pitch: near the horizon that point is thousands of units away, so the lean saturated
+	// its clamp and lurched. Screen space is linear - centre is no lean, edge is full lean,
+	// regardless of camera angle or what the cursor happens to be over.
 	FVector DesiredPeek = FVector::ZeroVector;
 
-	if (MousePeekStrength > 0.0f)
+	if (MousePeekStrength > 0.0f && PC)
 	{
-		FVector AimPoint;
-		if (ComputeAimPoint(AimPoint))
-		{
-			FVector ToAim = AimPoint - GetActorLocation();
-			ToAim.Z = 0.0f;
+		int32 ViewportX = 0;
+		int32 ViewportY = 0;
+		PC->GetViewportSize(ViewportX, ViewportY);
 
-			DesiredPeek = ToAim * MousePeekStrength;
-			DesiredPeek = DesiredPeek.GetClampedToMaxSize(MaxPeekDistance);
+		float MouseX = 0.0f;
+		float MouseY = 0.0f;
+
+		if (ViewportX > 0 && ViewportY > 0 && PC->GetMousePosition(MouseX, MouseY))
+		{
+			// -1..1 from screen centre.
+			float NormX = (MouseX / ViewportX) * 2.0f - 1.0f;
+			float NormY = (MouseY / ViewportY) * 2.0f - 1.0f;
+
+			// Deadzone, rescaled so the lean still reaches full strength at the screen edge
+			// instead of being permanently short by the deadzone amount.
+			auto ApplyDeadzone = [this](float Value)
+			{
+				const float Magnitude = FMath::Abs(Value);
+				if (Magnitude <= PeekDeadzone)
+				{
+					return 0.0f;
+				}
+				const float Rescaled = (Magnitude - PeekDeadzone) / FMath::Max(1.0f - PeekDeadzone, KINDA_SMALL_NUMBER);
+				return FMath::Sign(Value) * FMath::Min(Rescaled, 1.0f);
+			};
+
+			NormX = ApplyDeadzone(NormX);
+			NormY = ApplyDeadzone(NormY);
+
+			// Convert screen axes into world directions using the camera's yaw. Screen Y grows
+			// downward, so it maps to negative camera-forward.
+			const FRotator YawOnly(0.0f, CameraYaw, 0.0f);
+			const FVector CameraRight = YawOnly.RotateVector(FVector::RightVector);
+			const FVector CameraForward = YawOnly.RotateVector(FVector::ForwardVector);
+
+			DesiredPeek =
+				CameraRight * NormX * PeekHorizontalScale +
+				CameraForward * -NormY * PeekVerticalScale;
+
+			DesiredPeek *= MaxPeekDistance * MousePeekStrength;
+
+			// Hold the camera steadier while aiming down sights.
+			if (IsAiming())
+			{
+				DesiredPeek *= AimPeekMultiplier;
+			}
 		}
 	}
 
@@ -305,6 +399,11 @@ void AMsCharacter::OnWeaponFired()
 	AddCameraShake(FireShake);
 }
 
+void AMsCharacter::OnWeaponHit()
+{
+	AddCameraShake(GunHitShake);
+}
+
 void AMsCharacter::OnSwordSwing()
 {
 	AddCameraShake(SwordSwingShake);
@@ -333,6 +432,9 @@ void AMsCharacter::ShowCameraReadout() const
 		FString::Printf(TEXT("YAW    %.1f      [J left / L right, or Q/E]"), CameraYaw));
 	GEngine->AddOnScreenDebugMessage(9005, 0.0f, FColor::Yellow,
 		FString::Printf(TEXT("PEEK   %.2f      [N less / M more]"), MousePeekStrength));
+	GEngine->AddOnScreenDebugMessage(9007, 0.0f, IsAiming() ? FColor::Cyan : FColor::Silver,
+		FString::Printf(TEXT("ADS FOVx %.2f  [ [ / ] ]      DISTx %.2f  [ ; / ' ]%s"),
+			AimFOVMultiplier, AimDistanceMultiplier, IsAiming() ? TEXT("   << AIMING") : TEXT("")));
 	GEngine->AddOnScreenDebugMessage(9006, 0.0f, FColor::Green,
 		TEXT("--- CAMERA TUNING (P to hide) ---"));
 }
@@ -344,7 +446,7 @@ void AMsCharacter::OnToggleTuning()
 	if (!bCameraTuningMode && GEngine)
 	{
 		// Clear the readout lines so they do not linger once tuning is off.
-		for (int32 Key = 9001; Key <= 9006; ++Key)
+		for (int32 Key = 9001; Key <= 9007; ++Key)
 		{
 			GEngine->RemoveOnScreenDebugMessage(Key);
 		}
@@ -414,6 +516,9 @@ void AMsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 	PlayerInputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &AMsCharacter::OnZoomOut);
 
 	PlayerInputComponent->BindKey(EKeys::P, IE_Pressed, this, &AMsCharacter::OnToggleTuning);
+
+	PlayerInputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AMsCharacter::OnAimPressed);
+	PlayerInputComponent->BindKey(EKeys::RightMouseButton, IE_Released, this, &AMsCharacter::OnAimReleased);
 }
 
 void AMsCharacter::OnZoomIn()

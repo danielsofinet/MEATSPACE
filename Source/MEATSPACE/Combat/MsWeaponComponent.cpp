@@ -95,9 +95,16 @@ void UMsWeaponComponent::FireOnce()
 		return;
 	}
 
-	if (SpreadDegrees > 0.0f)
+	// Aiming down sights tightens the cone - holding right mouse should actually reward you.
+	float EffectiveSpread = SpreadDegrees;
+	if (MsOwner)
 	{
-		AimDir = FMath::VRandCone(AimDir, FMath::DegreesToRadians(SpreadDegrees));
+		EffectiveSpread *= MsOwner->GetAimSpreadMultiplier();
+	}
+
+	if (EffectiveSpread > 0.0f)
+	{
+		AimDir = FMath::VRandCone(AimDir, FMath::DegreesToRadians(EffectiveSpread));
 	}
 
 	// Immediate local feedback for the shooter. Cosmetic - the server still decides the truth.
@@ -110,6 +117,12 @@ void UMsWeaponComponent::FireOnce()
 		if (AMsCharacter* ShooterCharacter = Cast<AMsCharacter>(OwnerPawn))
 		{
 			ShooterCharacter->OnWeaponFired();
+
+			// Connecting reads differently from missing.
+			if (bLocalHit)
+			{
+				ShooterCharacter->OnWeaponHit();
+			}
 		}
 	}
 

@@ -31,8 +31,8 @@ void AMsCharacter::BeginPlay()
 
 	// The boom and camera live on the Blueprint (they came from the Third Person template),
 	// so we adopt them rather than creating our own.
-	CameraBoom = FindComponentByClass<USpringArmComponent>();
-	FollowCamera = FindComponentByClass<UCameraComponent>();
+	CachedCameraBoom = FindComponentByClass<USpringArmComponent>();
+	CachedFollowCamera = FindComponentByClass<UCameraComponent>();
 
 	ApplyCameraSettings();
 
@@ -68,33 +68,33 @@ void AMsCharacter::ApplyCameraSettings()
 		return;
 	}
 
-	if (CameraBoom)
+	if (CachedCameraBoom)
 	{
 		// Absolute rotation - the boom must not inherit anything from the pawn or controller,
 		// or the "fixed" camera would swing around as the character turns to face the cursor.
-		CameraBoom->bUsePawnControlRotation = false;
-		CameraBoom->bInheritPitch = false;
-		CameraBoom->bInheritYaw = false;
-		CameraBoom->bInheritRoll = false;
-		CameraBoom->SetUsingAbsoluteRotation(true);
-		CameraBoom->SetWorldRotation(FRotator(-CameraPitch, CameraYaw, 0.0f));
+		CachedCameraBoom->bUsePawnControlRotation = false;
+		CachedCameraBoom->bInheritPitch = false;
+		CachedCameraBoom->bInheritYaw = false;
+		CachedCameraBoom->bInheritRoll = false;
+		CachedCameraBoom->SetUsingAbsoluteRotation(true);
+		CachedCameraBoom->SetWorldRotation(FRotator(-CameraPitch, CameraYaw, 0.0f));
 
-		CameraBoom->TargetArmLength = CameraDistance;
-		CameraBoom->SocketOffset = FVector::ZeroVector;
-		CameraBoom->TargetOffset = FVector::ZeroVector;
+		CachedCameraBoom->TargetArmLength = CameraDistance;
+		CachedCameraBoom->SocketOffset = FVector::ZeroVector;
+		CachedCameraBoom->TargetOffset = FVector::ZeroVector;
 
 		// Without this the boom collides with level geometry behind the character and snaps
 		// the camera in - unusable for a top-down rig where the boom is always inside walls.
-		CameraBoom->bDoCollisionTest = false;
+		CachedCameraBoom->bDoCollisionTest = false;
 
-		CameraBoom->bEnableCameraLag = CameraLagSpeed > 0.0f;
-		CameraBoom->CameraLagSpeed = CameraLagSpeed;
+		CachedCameraBoom->bEnableCameraLag = CameraLagSpeed > 0.0f;
+		CachedCameraBoom->CameraLagSpeed = CameraLagSpeed;
 	}
 
-	if (FollowCamera)
+	if (CachedFollowCamera)
 	{
-		FollowCamera->SetFieldOfView(CameraFOV);
-		FollowCamera->bUsePawnControlRotation = false;
+		CachedFollowCamera->SetFieldOfView(CameraFOV);
+		CachedFollowCamera->bUsePawnControlRotation = false;
 	}
 }
 

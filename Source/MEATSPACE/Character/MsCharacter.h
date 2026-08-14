@@ -147,10 +147,16 @@ private:
 	/** On-screen readout of the current weapon. Debug only. */
 	void ShowWeaponFeedback() const;
 
-	/** Found on the Blueprint rather than created here, so the template's rig stays intact. */
+	/**
+	 * Found on the Blueprint rather than created here, so the template's rig stays intact.
+	 *
+	 * Names must NOT be CameraBoom / FollowCamera - the Third Person template Blueprint
+	 * already has components with those names, and a child Blueprint cannot declare a
+	 * variable that collides with one in its C++ parent. It fails to compile if they clash.
+	 */
 	UPROPERTY(Transient)
-	TObjectPtr<USpringArmComponent> CameraBoom;
+	TObjectPtr<USpringArmComponent> CachedCameraBoom;
 
 	UPROPERTY(Transient)
-	TObjectPtr<UCameraComponent> FollowCamera;
+	TObjectPtr<UCameraComponent> CachedFollowCamera;
 };

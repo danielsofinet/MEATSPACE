@@ -11,6 +11,26 @@ class USpringArmComponent;
 class UCameraComponent;
 
 /**
+ * How the camera is driven.
+ *
+ * The mouse can only do one job. Either it aims - cursor picks the target and the camera yaw
+ * stays put - or it rotates the camera, in which case aiming has to fall back to a
+ * centre-screen crosshair. There is no configuration where it does both.
+ */
+UENUM(BlueprintType)
+enum class EMsCameraMode : uint8
+{
+	/** Yaw locked. Cursor aims. Q/E rotate manually. Best horde awareness. */
+	Fixed		UMETA(DisplayName = "Fixed angle"),
+
+	/** Mouse rotates the camera, classic third-person. Aim is centre-screen. */
+	Orbit		UMETA(DisplayName = "Mouse orbit (TPS)"),
+
+	/** Cursor aims, and the camera lazily swings to follow where you are aiming. */
+	FollowAim	UMETA(DisplayName = "Follow aim")
+};
+
+/**
  * Base player character for MEATSPACE.
  *
  * Camera is a fixed forced-perspective rig, not a follow-cam: locked pitch and yaw, long
@@ -76,6 +96,14 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Aim")
 	float GetAimSpreadMultiplier() const { return IsAiming() ? AimSpreadMultiplier : 1.0f; }
 
+	/** The mode actually in force this frame, accounting for the aim override. */
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Camera")
+	EMsCameraMode GetEffectiveCameraMode() const;
+
+	/** False in Orbit mode, where the mouse drives the camera and aiming is centre-screen. */
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Aim")
+	bool UsesCursorAim() const { return GetEffectiveCameraMode() != EMsCameraMode::Orbit; }
+
 protected:
 	virtual void BeginPlay() override;
 	virtual void SetupPlayerInputComponent(UInputComponent* PlayerInputComponent) override;
@@ -100,6 +128,35 @@ protected:
 	/** Take over the Blueprint's camera boom and drive it as a fixed rig. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera")
 	bool bUseFixedCamera = true;
+
+	/** Which camera scheme runs while NOT aiming. Cycle in game with C. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera")
+	EMsCameraMode CameraMode = EMsCameraMode::Fixed;
+
+	/**
+	 * Holding right mouse switches to Orbit for as long as it is held.
+	 *
+	 * This is the resolution to "the mouse can only do one job": hipfire is twin-stick, with
+	 * the cursor aiming and a wide stable view for reading the horde; aiming is third-person,
+	 * with the mouse turning the camera and a centre-screen crosshair. You pick which job the
+	 * mouse is doing, moment to moment.
+	 *
+	 * It also fixes the zoom: magnifying screen centre only helps if you are aiming at screen
+	 * centre, which you are in Orbit.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera")
+	bool bAimSwitchesToOrbit = true;
+
+	/**
+	 * Snap the camera yaw back to where it was before aiming. Off by default: letting the new
+	 * angle persist means aiming doubles as a way to turn the camera.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera")
+	bool bRestoreYawAfterAiming = false;
+
+	/** FollowAim only: how fast the camera swings around to follow your aim. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "0.1"))
+	float FollowAimSpeed = 2.5f;
 
 	/**
 	 * Downward tilt in degrees. Low values keep the horizon and sky in frame, which is what
@@ -129,10 +186,10 @@ protected:
 
 	/** Scroll wheel zoom limits. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Zoom", meta = (ClampMin = "100.0"))
-	float MinCameraDistance = 500.0f;
+	float MinCameraDistance = 2450.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Zoom", meta = (ClampMin = "100.0"))
-	float MaxCameraDistance = 6000.0f;
+	float MaxCameraDistance = 4210.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Zoom", meta = (ClampMin = "10.0"))
 	float ZoomStep = 160.0f;
@@ -191,21 +248,28 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom")
 	bool bAllowAimZoom = true;
 
-	/** FOV multiplier while aiming. 0.6 of 40 gives a 24 degree FOV - a real magnification. */
+	/** FOV multiplier while aiming. Kept mild - the look-ahead below does the real work. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.1", ClampMax = "2.0"))
-	float AimFOVMultiplier = 0.62f;
+	float AimFOVMultiplier = 0.72f;
 
 	/** Boom length multiplier while aiming. Under 1 pulls the camera in toward the character. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.1", ClampMax = "2.0"))
-	float AimDistanceMultiplier = 0.80f;
+	float AimDistanceMultiplier = 0.88f;
 
 	/** How fast the zoom eases in and out. Higher = snappier. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.5"))
 	float AimTransitionSpeed = 8.0f;
 
-	/** Mouse-follow is scaled by this while aiming - usually you want the camera steadier. */
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float AimPeekMultiplier = 0.35f;
+	/**
+	 * Mouse-follow multiplier while aiming. Deliberately ABOVE 1.
+	 *
+	 * Narrowing the FOV magnifies whatever is at screen centre, and at this camera pitch
+	 * screen centre is the ground at your feet - so a plain zoom just gives you a close-up of
+	 * the floor. Pushing the view further along your aim is what makes aiming show you the
+	 * thing you are shooting at.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.0", ClampMax = "4.0"))
+	float AimPeekMultiplier = 1.9f;
 
 	/** Weapon spread is multiplied by this while aiming. Aiming should reward you. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.0", ClampMax = "1.0"))
@@ -335,6 +399,16 @@ private:
 	void OnToggleTuning();
 	void OnAimPressed();
 	void OnAimReleased();
+	void OnCycleCameraMode();
+
+	/** Applies the per-mode input setup (cursor visibility) when the mode changes. */
+	void ApplyCameraMode();
+
+	EMsCameraMode LastAppliedMode = EMsCameraMode::Fixed;
+	bool bModeApplied = false;
+
+	/** Yaw captured when aiming began, for bRestoreYawAfterAiming. */
+	float YawBeforeAiming = 0.0f;
 
 	/** Right mouse held. Zoom only actually engages when the gun is out. */
 	bool bAimHeld = false;

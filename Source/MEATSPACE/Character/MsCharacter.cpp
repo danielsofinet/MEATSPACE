@@ -68,14 +68,38 @@ bool AMsCharacter::IsAiming() const
 	return bAllowAimZoom && bAimHeld && ActiveSlot == EMsWeaponSlot::Gun;
 }
 
+EMsCameraMode AMsCharacter::GetEffectiveCameraMode() const
+{
+	// Aiming temporarily takes over the camera scheme.
+	if (bAimSwitchesToOrbit && IsAiming())
+	{
+		return EMsCameraMode::Orbit;
+	}
+
+	return CameraMode;
+}
+
 void AMsCharacter::OnAimPressed()
 {
+	YawBeforeAiming = CameraYaw;
 	bAimHeld = true;
+
+	// Hand the control rotation the yaw the camera is already at, so entering Orbit does not
+	// snap the view - the mouse picks up exactly where the fixed camera was pointing.
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		PC->SetControlRotation(FRotator(0.0f, CameraYaw, 0.0f));
+	}
 }
 
 void AMsCharacter::OnAimReleased()
 {
 	bAimHeld = false;
+
+	if (bRestoreYawAfterAiming)
+	{
+		CameraYaw = YawBeforeAiming;
+	}
 }
 
 void AMsCharacter::ApplyCameraSettings()
@@ -150,18 +174,37 @@ void AMsCharacter::Tick(float DeltaSeconds)
 
 	TickCameraFollow(DeltaSeconds);
 
-	if (bUseFixedCamera)
+	ApplyCameraMode();
+
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	const EMsCameraMode Mode = GetEffectiveCameraMode();
+
+	if (bUseFixedCamera && PC)
 	{
-		// Pin the control rotation to the camera's yaw. The Blueprint's movement input is
-		// relative to control rotation, so this is what keeps WASD aligned to the screen
-		// instead of drifting with the mouse.
-		if (APlayerController* PC = Cast<APlayerController>(GetController()))
+		if (Mode == EMsCameraMode::Orbit)
 		{
+			// The Blueprint's Look input already drives control rotation with the mouse, so
+			// we simply read it as the camera yaw rather than fighting it. Pitch stays locked,
+			// which is what preserves the forced-perspective look while the world turns.
+			CameraYaw = PC->GetControlRotation().Yaw;
+		}
+		else
+		{
+			// Pin the control rotation to the camera's yaw. The Blueprint's movement input is
+			// relative to control rotation, so this is what keeps WASD aligned to the screen
+			// instead of drifting with the mouse.
 			PC->SetControlRotation(FRotator(0.0f, CameraYaw, 0.0f));
 		}
 	}
 
-	if (bFaceCursor)
+	// Facing: toward the cursor, except in Orbit where the character faces where the camera
+	// looks - that is what makes a centre-screen crosshair mean anything.
+	if (Mode == EMsCameraMode::Orbit)
+	{
+		const FRotator Desired(0.0f, CameraYaw, 0.0f);
+		SetActorRotation(FMath::RInterpTo(GetActorRotation(), Desired, DeltaSeconds, FaceCursorSpeed));
+	}
+	else if (bFaceCursor)
 	{
 		FVector AimPoint;
 		if (ComputeAimPoint(AimPoint))
@@ -173,8 +216,63 @@ void AMsCharacter::Tick(float DeltaSeconds)
 			{
 				const FRotator Desired(0.0f, ToAim.Rotation().Yaw, 0.0f);
 				SetActorRotation(FMath::RInterpTo(GetActorRotation(), Desired, DeltaSeconds, FaceCursorSpeed));
+
+				// FollowAim: the camera drifts around to sit behind your aim, giving the view
+				// motion without taking the mouse away from aiming.
+				if (Mode == EMsCameraMode::FollowAim)
+				{
+					const float TargetYaw = ToAim.Rotation().Yaw;
+					CameraYaw = FMath::FInterpTo(CameraYaw, TargetYaw, DeltaSeconds, FollowAimSpeed);
+				}
 			}
 		}
+	}
+}
+
+void AMsCharacter::ApplyCameraMode()
+{
+	const EMsCameraMode Mode = GetEffectiveCameraMode();
+
+	if (bModeApplied && LastAppliedMode == Mode)
+	{
+		return;
+	}
+
+	const bool bAimDriven = bAimSwitchesToOrbit && IsAiming();
+
+	LastAppliedMode = Mode;
+	bModeApplied = true;
+
+	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	{
+		// Orbit needs the mouse captured to spin the camera; the others need a free cursor
+		// because the cursor IS the aiming device.
+		PC->bShowMouseCursor = UsesCursorAim();
+	}
+
+	// Peek is meaningless in Orbit - the camera is already pointing where you look.
+	CurrentPeekOffset = FVector::ZeroVector;
+
+	// Only announce deliberate mode changes, not the constant flicker of aiming in and out.
+	if (GEngine && !bAimDriven)
+	{
+		const TCHAR* ModeName =
+			Mode == EMsCameraMode::Orbit ? TEXT("ORBIT (mouse turns camera, centre-screen aim)") :
+			Mode == EMsCameraMode::FollowAim ? TEXT("FOLLOW AIM (cursor aims, camera drifts to follow)") :
+			TEXT("FIXED (cursor aims, yaw locked, Q/E to rotate)");
+
+		GEngine->AddOnScreenDebugMessage(9008, 3.0f, FColor::Magenta,
+			FString::Printf(TEXT("CAMERA MODE: %s   [C to cycle]"), ModeName));
+	}
+}
+
+void AMsCharacter::OnCycleCameraMode()
+{
+	switch (CameraMode)
+	{
+	case EMsCameraMode::Fixed:		CameraMode = EMsCameraMode::Orbit; break;
+	case EMsCameraMode::Orbit:		CameraMode = EMsCameraMode::FollowAim; break;
+	default:						CameraMode = EMsCameraMode::Fixed; break;
 	}
 }
 
@@ -264,8 +362,9 @@ void AMsCharacter::TickCameraFollow(float DeltaSeconds)
 
 	APlayerController* PC = Cast<APlayerController>(GetController());
 
-	// Q / E swing the whole view around the character.
-	if (PC && bAllowCameraRotate)
+	// Q / E swing the whole view around the character. Pointless in Orbit, where the mouse
+	// already owns the yaw and this would just fight it.
+	if (PC && bAllowCameraRotate && GetEffectiveCameraMode() != EMsCameraMode::Orbit)
 	{
 		if (PC->IsInputKeyDown(EKeys::Q))
 		{
@@ -285,7 +384,8 @@ void AMsCharacter::TickCameraFollow(float DeltaSeconds)
 	// regardless of camera angle or what the cursor happens to be over.
 	FVector DesiredPeek = FVector::ZeroVector;
 
-	if (MousePeekStrength > 0.0f && PC)
+	// No peek in Orbit - the camera already points where you are looking.
+	if (MousePeekStrength > 0.0f && PC && UsesCursorAim())
 	{
 		int32 ViewportX = 0;
 		int32 ViewportY = 0;
@@ -468,9 +568,30 @@ bool AMsCharacter::ComputeAimPoint(FVector& OutAimPoint) const
 
 	FVector RayOrigin;
 	FVector RayDirection;
-	if (!PC->DeprojectMousePositionToWorld(RayOrigin, RayDirection))
+
+	if (UsesCursorAim())
 	{
-		return false;
+		if (!PC->DeprojectMousePositionToWorld(RayOrigin, RayDirection))
+		{
+			return false;
+		}
+	}
+	else
+	{
+		// Orbit mode: the mouse is turning the camera, so aim comes from screen centre.
+		int32 ViewportX = 0;
+		int32 ViewportY = 0;
+		PC->GetViewportSize(ViewportX, ViewportY);
+
+		if (ViewportX <= 0 || ViewportY <= 0)
+		{
+			return false;
+		}
+
+		if (!PC->DeprojectScreenPositionToWorld(ViewportX * 0.5f, ViewportY * 0.5f, RayOrigin, RayDirection))
+		{
+			return false;
+		}
 	}
 
 	const FVector RayEnd = RayOrigin + RayDirection * AimTraceDistance;
@@ -523,6 +644,8 @@ void AMsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 
 	PlayerInputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AMsCharacter::OnAimPressed);
 	PlayerInputComponent->BindKey(EKeys::RightMouseButton, IE_Released, this, &AMsCharacter::OnAimReleased);
+
+	PlayerInputComponent->BindKey(EKeys::C, IE_Pressed, this, &AMsCharacter::OnCycleCameraMode);
 }
 
 void AMsCharacter::OnZoomIn()

@@ -1,15 +1,46 @@
 #include "Game/MsCutsceneSubsystem.h"
 
+#include "Clankers/MsClankerBase.h"
 #include "Engine/World.h"
+#include "EngineUtils.h"
 #include "GameFramework/PlayerController.h"
 #include "TimerManager.h"
+#include "World/MsEncounterVolume.h"
 
-void UMsCutsceneSubsystem::PlayCutscene(const TArray<FText>& Lines, float SecondsPerLine)
+void UMsCutsceneSubsystem::ClearBattlefield()
+{
+	UWorld* World = GetWorld();
+	if (!World)
+	{
+		return;
+	}
+
+	// Stop encounters first, or one mid-escalation would simply spawn a fresh round straight
+	// after we removed its clankers.
+	for (TActorIterator<AMsEncounterVolume> It(World); It; ++It)
+	{
+		It->AbortEncounter();
+	}
+
+	// Then sweep anything left - clankers from an encounter that already ended, or placed by
+	// hand in the level.
+	for (TActorIterator<AMsClankerBase> It(World); It; ++It)
+	{
+		It->Destroy();
+	}
+}
+
+void UMsCutsceneSubsystem::PlayCutscene(const TArray<FText>& Lines, float SecondsPerLine, bool bClearBattlefield)
 {
 	UWorld* World = GetWorld();
 	if (!World || bPlaying || Lines.Num() == 0)
 	{
 		return;
+	}
+
+	if (bClearBattlefield)
+	{
+		ClearBattlefield();
 	}
 
 	CutsceneLines = Lines;

@@ -58,6 +58,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Meatspace|Encounter")
 	void TriggerEncounter();
 
+	/**
+	 * Stops the encounter dead and removes its clankers, without firing the cleared hooks.
+	 *
+	 * Used when something supersedes the fight - a cutscene, a scripted retreat. Deliberately
+	 * silent: the encounter did not end because the player won it, so it must not set the
+	 * "cleared" objective or unlock whatever was gated behind beating it.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Meatspace|Encounter")
+	void AbortEncounter();
+
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Encounter")
 	bool IsActive() const { return bActive; }
 

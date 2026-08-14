@@ -26,7 +26,17 @@ class MEATSPACE_API UMsCutsceneSubsystem : public UWorldSubsystem
 public:
 	/** Starts a cutscene. Ignored if one is already playing. */
 	UFUNCTION(BlueprintCallable, Category = "Meatspace|Cutscene")
-	void PlayCutscene(const TArray<FText>& Lines, float SecondsPerLine = 3.5f);
+	void PlayCutscene(const TArray<FText>& Lines, float SecondsPerLine = 3.5f, bool bClearBattlefield = true);
+
+	/**
+	 * Stops every running encounter and removes every clanker in the world.
+	 *
+	 * A cutscene has to clear the board. Fading back in to a pack that was quietly waiting
+	 * during the story beat breaks the fiction and, worse, kills the player during a moment
+	 * they had no reason to think was dangerous.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "Meatspace|Cutscene")
+	void ClearBattlefield();
 
 	UFUNCTION(BlueprintCallable, Category = "Meatspace|Cutscene")
 	void SkipCutscene();

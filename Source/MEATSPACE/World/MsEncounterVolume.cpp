@@ -171,6 +171,23 @@ void AMsEncounterVolume::Tick(float DeltaSeconds)
 #endif
 }
 
+void AMsEncounterVolume::AbortEncounter()
+{
+	bActive = false;
+	SetActorTickEnabled(false);
+
+	for (const TWeakObjectPtr<AMsClankerBase>& Entry : AliveClankers)
+	{
+		if (AMsClankerBase* Clanker = Entry.Get())
+		{
+			Clanker->Destroy();
+		}
+	}
+
+	AliveClankers.Reset();
+	PendingDeliveries = 0;
+}
+
 void AMsEncounterVolume::MarkCleared()
 {
 	bActive = false;

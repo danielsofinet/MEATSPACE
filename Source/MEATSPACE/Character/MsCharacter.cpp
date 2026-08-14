@@ -12,6 +12,23 @@
 #include "InputCoreTypes.h"
 #include "Net/UnrealNetwork.h"
 
+namespace
+{
+	/** Maps 0..1 dullness onto an interpolation speed. 0 is near-instant, 1 is heavy. */
+	float DullnessToFollowSpeed(float Dullness)
+	{
+		return FMath::Lerp(45.0f, 2.5f, FMath::Clamp(Dullness, 0.0f, 1.0f));
+	}
+
+	/** Angle interpolation that survives the +/-180 wrap. */
+	float InterpAngle(float Current, float Target, float DeltaSeconds, float Speed)
+	{
+		const float Delta = FRotator::NormalizeAxis(Target - Current);
+		const float Alpha = FMath::Clamp(DeltaSeconds * Speed, 0.0f, 1.0f);
+		return FRotator::NormalizeAxis(Current + Delta * Alpha);
+	}
+}
+
 AMsCharacter::AMsCharacter()
 {
 	PrimaryActorTick.bCanEverTick = true;
@@ -34,11 +51,12 @@ void AMsCharacter::BeginPlay()
 	CachedCameraBoom = FindComponentByClass<USpringArmComponent>();
 	CachedFollowCamera = FindComponentByClass<UCameraComponent>();
 
-	ApplyCameraSettings();
+	DesiredCameraYaw = CameraYaw;
+	DesiredCameraPitch = CameraPitch;
 
-	if (bUseFixedCamera)
+	if (bDriveCameraRig)
 	{
-		// The character turns to face the cursor, so nothing else may drive its rotation.
+		// The character faces where the camera looks, so nothing else may drive its rotation.
 		bUseControllerRotationYaw = false;
 		bUseControllerRotationPitch = false;
 		bUseControllerRotationRoll = false;
@@ -49,85 +67,65 @@ void AMsCharacter::BeginPlay()
 		}
 	}
 
+	ApplyCameraSettings();
+
 	if (IsLocallyControlled())
 	{
 		if (APlayerController* PC = Cast<APlayerController>(GetController()))
 		{
-			// Free-moving cursor: this is the aiming device now.
-			PC->bShowMouseCursor = true;
+			// Capture the mouse. Merely hiding the cursor is not enough - an uncaptured
+			// cursor still reaches the edge of the screen, stops producing movement, and the
+			// camera appears to stick and judder against the boundary.
+			FInputModeGameOnly InputMode;
+			InputMode.SetConsumeCaptureMouseDown(false);
+			PC->SetInputMode(InputMode);
+			PC->bShowMouseCursor = false;
+
+			SeedLookTracking();
 		}
 
 		ShowWeaponFeedback();
 	}
 }
 
-bool AMsCharacter::IsAiming() const
+void AMsCharacter::SeedLookTracking()
 {
-	// Right mouse only zooms with the gun out. The sword will want its own right-mouse
-	// behaviour later - a block or a dash - so this stays weapon-gated from the start.
-	return bAllowAimZoom && bAimHeld && ActiveSlot == EMsWeaponSlot::Gun;
-}
-
-EMsCameraMode AMsCharacter::GetEffectiveCameraMode() const
-{
-	// Aiming temporarily takes over the camera scheme.
-	if (bAimSwitchesToOrbit && IsAiming())
-	{
-		return EMsCameraMode::Orbit;
-	}
-
-	return CameraMode;
-}
-
-void AMsCharacter::SeedOrbitTracking()
-{
-	// Start the delta tracking from where the camera already is, so the first orbit frame
-	// produces zero movement instead of a jump.
 	if (APlayerController* PC = Cast<APlayerController>(GetController()))
 	{
-		PC->SetControlRotation(FRotator(-CameraPitch, CameraYaw, 0.0f));
+		PC->SetControlRotation(FRotator(-DesiredCameraPitch, DesiredCameraYaw, 0.0f));
 	}
 
-	LastControlYaw = CameraYaw;
-	LastControlPitch = -CameraPitch;
+	LastControlYaw = DesiredCameraYaw;
+	LastControlPitch = -DesiredCameraPitch;
+}
+
+bool AMsCharacter::IsAiming() const
+{
+	// The sword will want its own right-mouse behaviour later - a block or a dash - so this
+	// stays weapon-gated from the start.
+	return bAllowAimZoom && bAimHeld && ActiveSlot == EMsWeaponSlot::Gun;
 }
 
 void AMsCharacter::OnAimPressed()
 {
-	YawBeforeAiming = CameraYaw;
-	PitchBeforeAiming = CameraPitch;
 	bAimHeld = true;
-
-	// Seed immediately rather than waiting for ApplyCameraMode, so the very first frame of
-	// aiming cannot snap the view.
-	SeedOrbitTracking();
 }
 
 void AMsCharacter::OnAimReleased()
 {
 	bAimHeld = false;
-
-	if (bRestoreYawAfterAiming)
-	{
-		CameraYaw = YawBeforeAiming;
-	}
-
-	// The base pitch is an art decision - a temporary aim should not permanently change it.
-	if (bRestorePitchAfterAiming && CameraMode != EMsCameraMode::Orbit)
-	{
-		CameraPitch = PitchBeforeAiming;
-	}
 }
 
 void AMsCharacter::ApplyCameraSettings()
 {
-	if (!bUseFixedCamera)
+	if (!bDriveCameraRig)
 	{
 		return;
 	}
 
-	// Ease FOV and boom length toward their targets so aiming zooms smoothly. Initialised on
-	// the first frame so the camera does not lerp up from zero when play starts.
+	const float DeltaSeconds = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.0f;
+
+	// Ease FOV and boom length toward their targets so aiming zooms smoothly.
 	const float TargetFOV = IsAiming() ? CameraFOV * AimFOVMultiplier : CameraFOV;
 	const float TargetDistance = IsAiming() ? CameraDistance * AimDistanceMultiplier : CameraDistance;
 
@@ -138,15 +136,14 @@ void AMsCharacter::ApplyCameraSettings()
 	}
 	else
 	{
-		const float DeltaSeconds = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.0f;
 		CurrentFOV = FMath::FInterpTo(CurrentFOV, TargetFOV, DeltaSeconds, AimTransitionSpeed);
 		CurrentDistance = FMath::FInterpTo(CurrentDistance, TargetDistance, DeltaSeconds, AimTransitionSpeed);
 	}
 
 	if (CachedCameraBoom)
 	{
-		// Absolute rotation - the boom must not inherit anything from the pawn or controller,
-		// or the "fixed" camera would swing around as the character turns to face the cursor.
+		// Absolute rotation - the boom must not inherit anything from the pawn, or it would
+		// swing around as the character turns.
 		CachedCameraBoom->bUsePawnControlRotation = false;
 		CachedCameraBoom->bInheritPitch = false;
 		CachedCameraBoom->bInheritYaw = false;
@@ -155,17 +152,15 @@ void AMsCharacter::ApplyCameraSettings()
 		CachedCameraBoom->SetWorldRotation(FRotator(-CameraPitch, CameraYaw, 0.0f));
 
 		CachedCameraBoom->TargetArmLength = CurrentDistance;
+		CachedCameraBoom->TargetOffset = FVector::ZeroVector;
 
-		// Over-the-shoulder shift while aiming, eased in. SocketOffset is applied in the
-		// boom's own space, so it moves the character sideways in frame without changing
-		// where the camera points.
-		const FVector TargetSocketOffset = IsAiming() ? AimSocketOffset : FVector::ZeroVector;
-		const float SocketDelta = GetWorld() ? GetWorld()->GetDeltaSeconds() : 0.0f;
+		// Shoulder shift, eased. SocketOffset is applied in the boom's own space, so it moves
+		// the character sideways in frame without changing where the camera points.
+		const FVector TargetSocketOffset = IsAiming() ? AimSocketOffset : HipSocketOffset;
 		CachedCameraBoom->SocketOffset = FMath::VInterpTo(
-			CachedCameraBoom->SocketOffset, TargetSocketOffset, SocketDelta, AimTransitionSpeed);
+			CachedCameraBoom->SocketOffset, TargetSocketOffset, DeltaSeconds, AimTransitionSpeed);
 
-		// Without this the boom collides with level geometry behind the character and snaps
-		// the camera in - unusable for a top-down rig where the boom is always inside walls.
+		// A top-down boom lives inside geometry; collision testing would snap the camera in.
 		CachedCameraBoom->bDoCollisionTest = false;
 
 		CachedCameraBoom->bEnableCameraLag = CameraLagSpeed > 0.0f;
@@ -179,6 +174,43 @@ void AMsCharacter::ApplyCameraSettings()
 	}
 }
 
+void AMsCharacter::TickMouseLook(float DeltaSeconds)
+{
+	APlayerController* PC = Cast<APlayerController>(GetController());
+	if (!PC || !bDriveCameraRig)
+	{
+		return;
+	}
+
+	// The Blueprint's Look input drives control rotation with the mouse. We consume it as a
+	// DELTA rather than reading it absolutely, which is what makes sensitivity scalable and
+	// lets us clamp pitch without fighting the input system.
+	const FRotator ControlRotation = PC->GetControlRotation();
+
+	const float YawDelta = FRotator::NormalizeAxis(ControlRotation.Yaw - LastControlYaw);
+	const float PitchDelta = FRotator::NormalizeAxis(ControlRotation.Pitch) - LastControlPitch;
+
+	const float ActiveYawSensitivity = IsAiming() ? AimYawSensitivity : YawSensitivity;
+	DesiredCameraYaw = FRotator::NormalizeAxis(DesiredCameraYaw + YawDelta * ActiveYawSensitivity);
+
+	// Control pitch goes negative looking down; our CameraPitch goes positive.
+	const float MinPitch = FMath::Min(PitchMin, PitchMax);
+	const float MaxPitch = FMath::Max(PitchMin, PitchMax);
+	DesiredCameraPitch = FMath::Clamp(DesiredCameraPitch - PitchDelta * PitchSensitivity, MinPitch, MaxPitch);
+
+	// Write the clamped result back so control rotation never drifts away from the camera,
+	// and so next frame's delta is purely new mouse movement.
+	PC->SetControlRotation(FRotator(-DesiredCameraPitch, DesiredCameraYaw, 0.0f));
+	LastControlYaw = DesiredCameraYaw;
+	LastControlPitch = -DesiredCameraPitch;
+
+	// Dullness: the camera trails the mouse rather than being welded to it. Aiming uses a
+	// lower value because precision wants a rigid camera.
+	const float FollowSpeed = DullnessToFollowSpeed(IsAiming() ? AimCameraDullness : CameraDullness);
+	CameraYaw = InterpAngle(CameraYaw, DesiredCameraYaw, DeltaSeconds, FollowSpeed);
+	CameraPitch = FMath::FInterpTo(CameraPitch, DesiredCameraPitch, DeltaSeconds, FollowSpeed);
+}
+
 void AMsCharacter::Tick(float DeltaSeconds)
 {
 	Super::Tick(DeltaSeconds);
@@ -188,158 +220,73 @@ void AMsCharacter::Tick(float DeltaSeconds)
 		return;
 	}
 
+	TickMouseLook(DeltaSeconds);
 	TickCameraTuning(DeltaSeconds);
 
-	// Re-apply every frame so live edits in the editor take effect while playing.
+	// Re-applied every frame so live edits take effect while playing.
 	ApplyCameraSettings();
 
 	// Must run after ApplyCameraSettings - it layers on top of the base rotation it sets.
 	TickCameraJuice(DeltaSeconds);
 
-	TickCameraFollow(DeltaSeconds);
-
-	ApplyCameraMode();
-
-	APlayerController* PC = Cast<APlayerController>(GetController());
-	const EMsCameraMode Mode = GetEffectiveCameraMode();
-
-	if (bUseFixedCamera && PC)
-	{
-		if (Mode == EMsCameraMode::Orbit)
-		{
-			// The Blueprint's Look input drives control rotation with the mouse. We read it as
-			// a DELTA rather than an absolute so the movement can be scaled - reading it
-			// absolutely would make sensitivity impossible to change from here.
-			const FRotator ControlRotation = PC->GetControlRotation();
-
-			const float YawDelta = FRotator::NormalizeAxis(ControlRotation.Yaw - LastControlYaw);
-			const float PitchDelta = FRotator::NormalizeAxis(ControlRotation.Pitch) - LastControlPitch;
-
-			const float YawSensitivity = IsAiming() ? AimYawSensitivity : OrbitYawSensitivity;
-			CameraYaw = FRotator::NormalizeAxis(CameraYaw + YawDelta * YawSensitivity);
-
-			// Control pitch goes negative looking down; our CameraPitch goes positive. Clamped
-			// so the mouse gives vertical life without destroying the forced perspective.
-			const float MinPitch = FMath::Min(OrbitPitchMin, OrbitPitchMax);
-			const float MaxPitch = FMath::Max(OrbitPitchMin, OrbitPitchMax);
-			CameraPitch = FMath::Clamp(CameraPitch - PitchDelta * OrbitPitchSensitivity, MinPitch, MaxPitch);
-
-			// Write the clamped result back so control rotation never drifts away from the
-			// camera, and so the next frame's delta is purely new mouse movement.
-			PC->SetControlRotation(FRotator(-CameraPitch, CameraYaw, 0.0f));
-			LastControlYaw = CameraYaw;
-			LastControlPitch = -CameraPitch;
-		}
-		else
-		{
-			// Pin the control rotation to the camera's yaw. The Blueprint's movement input is
-			// relative to control rotation, so this is what keeps WASD aligned to the screen
-			// instead of drifting with the mouse.
-			PC->SetControlRotation(FRotator(0.0f, CameraYaw, 0.0f));
-		}
-	}
-
-	// Facing: toward the cursor, except in Orbit where the character faces where the camera
-	// looks - that is what makes a centre-screen crosshair mean anything.
-	if (Mode == EMsCameraMode::Orbit)
-	{
-		const FRotator Desired(0.0f, CameraYaw, 0.0f);
-		SetActorRotation(FMath::RInterpTo(GetActorRotation(), Desired, DeltaSeconds, FaceCursorSpeed));
-	}
-	else if (bFaceCursor)
-	{
-		FVector AimPoint;
-		if (ComputeAimPoint(AimPoint))
-		{
-			FVector ToAim = AimPoint - GetActorLocation();
-			ToAim.Z = 0.0f;
-
-			if (!ToAim.IsNearlyZero())
-			{
-				const FRotator Desired(0.0f, ToAim.Rotation().Yaw, 0.0f);
-				SetActorRotation(FMath::RInterpTo(GetActorRotation(), Desired, DeltaSeconds, FaceCursorSpeed));
-
-				// FollowAim: the camera drifts around to sit behind your aim, giving the view
-				// motion without taking the mouse away from aiming.
-				if (Mode == EMsCameraMode::FollowAim)
-				{
-					const float TargetYaw = ToAim.Rotation().Yaw;
-					CameraYaw = FMath::FInterpTo(CameraYaw, TargetYaw, DeltaSeconds, FollowAimSpeed);
-				}
-			}
-		}
-	}
+	// The body follows where the camera looks. That is what makes a fixed reticle mean
+	// anything: the character is always pointing at what you are about to shoot.
+	const FRotator DesiredFacing(0.0f, CameraYaw, 0.0f);
+	SetActorRotation(FMath::RInterpTo(GetActorRotation(), DesiredFacing, DeltaSeconds, CharacterTurnSpeed));
 }
 
-void AMsCharacter::ApplyCameraMode()
+bool AMsCharacter::ComputeAimPoint(FVector& OutAimPoint) const
 {
-	const EMsCameraMode Mode = GetEffectiveCameraMode();
-
-	if (bModeApplied && LastAppliedMode == Mode)
+	const APlayerController* PC = Cast<APlayerController>(GetController());
+	UWorld* World = GetWorld();
+	if (!PC || !World)
 	{
-		return;
+		return false;
 	}
 
-	const bool bAimDriven = bAimSwitchesToOrbit && IsAiming();
+	int32 ViewportX = 0;
+	int32 ViewportY = 0;
+	PC->GetViewportSize(ViewportX, ViewportY);
 
-	LastAppliedMode = Mode;
-	bModeApplied = true;
-
-	if (APlayerController* PC = Cast<APlayerController>(GetController()))
+	if (ViewportX <= 0 || ViewportY <= 0)
 	{
-		if (Mode == EMsCameraMode::Orbit)
-		{
-			// Capture the mouse properly. Hiding the cursor is not enough - an uncaptured
-			// cursor still hits the edge of the screen, at which point it stops producing
-			// movement and the camera appears to stick and judder against the boundary.
-			FInputModeGameOnly InputMode;
-			InputMode.SetConsumeCaptureMouseDown(false);
-			PC->SetInputMode(InputMode);
-			PC->bShowMouseCursor = false;
-
-			SeedOrbitTracking();
-		}
-		else
-		{
-			// Cursor modes: visible, and locked inside the viewport so aiming cannot wander
-			// onto a second monitor mid-fight.
-			FInputModeGameAndUI InputMode;
-			InputMode.SetLockMouseToViewportBehavior(EMouseLockMode::LockAlways);
-			InputMode.SetHideCursorDuringCapture(false);
-			PC->SetInputMode(InputMode);
-			PC->bShowMouseCursor = true;
-		}
+		return false;
 	}
 
-	// Peek is meaningless in Orbit - the camera is already pointing where you look.
-	CurrentPeekOffset = FVector::ZeroVector;
+	// Deproject through the reticle's actual screen position. Anything else would make the
+	// crosshair lie about where shots land.
+	const FVector2D Offset = GetCrosshairScreenOffset();
+	const float ScreenX = ViewportX * 0.5f + Offset.X * ViewportX * 0.5f;
+	const float ScreenY = ViewportY * 0.5f + Offset.Y * ViewportY * 0.5f;
 
-	// Only announce deliberate mode changes, not the constant flicker of aiming in and out.
-	if (GEngine && !bAimDriven)
+	FVector RayOrigin;
+	FVector RayDirection;
+	if (!PC->DeprojectScreenPositionToWorld(ScreenX, ScreenY, RayOrigin, RayDirection))
 	{
-		const TCHAR* ModeName =
-			Mode == EMsCameraMode::Orbit ? TEXT("ORBIT (mouse turns camera, centre-screen aim)") :
-			Mode == EMsCameraMode::FollowAim ? TEXT("FOLLOW AIM (cursor aims, camera drifts to follow)") :
-			TEXT("FIXED (cursor aims, yaw locked, Q/E to rotate)");
-
-		GEngine->AddOnScreenDebugMessage(9008, 3.0f, FColor::Magenta,
-			FString::Printf(TEXT("CAMERA MODE: %s   [C to cycle]"), ModeName));
+		return false;
 	}
-}
 
-void AMsCharacter::OnCycleCameraMode()
-{
-	switch (CameraMode)
+	const FVector RayEnd = RayOrigin + RayDirection * 25000.0f;
+
+	FCollisionQueryParams Params(SCENE_QUERY_STAT(MsAimTrace), /*bTraceComplex=*/false);
+	Params.AddIgnoredActor(this);
+
+	// Tracing rather than projecting onto a ground plane is what lets the reticle pick out
+	// flying clankers - the ray passes through them on its way out.
+	FHitResult Hit;
+	if (World->LineTraceSingleByChannel(Hit, RayOrigin, RayEnd, ECC_Visibility, Params))
 	{
-	case EMsCameraMode::Fixed:		CameraMode = EMsCameraMode::Orbit; break;
-	case EMsCameraMode::Orbit:		CameraMode = EMsCameraMode::FollowAim; break;
-	default:						CameraMode = EMsCameraMode::Fixed; break;
+		OutAimPoint = Hit.ImpactPoint;
+		return true;
 	}
+
+	OutAimPoint = RayEnd;
+	return true;
 }
 
 void AMsCharacter::TickCameraTuning(float DeltaSeconds)
 {
-	if (!bCameraTuningMode || !bUseFixedCamera)
+	if (!bCameraTuningMode || !bDriveCameraRig)
 	{
 		return;
 	}
@@ -350,17 +297,9 @@ void AMsCharacter::TickCameraTuning(float DeltaSeconds)
 		return;
 	}
 
-	// Held keys rather than presses, so values sweep smoothly and you can feel the change
-	// happening rather than stepping through it.
-	if (PC->IsInputKeyDown(EKeys::I))
-	{
-		CameraPitch = FMath::Clamp(CameraPitch + PitchAdjustRate * DeltaSeconds, 5.0f, 89.0f);
-	}
-	if (PC->IsInputKeyDown(EKeys::K))
-	{
-		CameraPitch = FMath::Clamp(CameraPitch - PitchAdjustRate * DeltaSeconds, 5.0f, 89.0f);
-	}
-
+	// Held keys rather than presses, so values sweep smoothly and the change can be felt.
+	// Letters, digits and arrows only - punctuation sits in different physical places across
+	// keyboard layouts.
 	if (PC->IsInputKeyDown(EKeys::U))
 	{
 		CameraFOV = FMath::Clamp(CameraFOV - FOVAdjustRate * DeltaSeconds, 5.0f, 120.0f);
@@ -370,29 +309,38 @@ void AMsCharacter::TickCameraTuning(float DeltaSeconds)
 		CameraFOV = FMath::Clamp(CameraFOV + FOVAdjustRate * DeltaSeconds, 5.0f, 120.0f);
 	}
 
-	if (PC->IsInputKeyDown(EKeys::J))
-	{
-		CameraYaw -= YawAdjustRate * DeltaSeconds;
-	}
-	if (PC->IsInputKeyDown(EKeys::L))
-	{
-		CameraYaw += YawAdjustRate * DeltaSeconds;
-	}
-
+	// Dullness of whichever state we are in right now.
+	float& Dullness = IsAiming() ? AimCameraDullness : CameraDullness;
 	if (PC->IsInputKeyDown(EKeys::N))
 	{
-		MousePeekStrength = FMath::Clamp(MousePeekStrength - PeekAdjustRate * DeltaSeconds, 0.0f, 1.0f);
+		Dullness = FMath::Clamp(Dullness - 0.35f * DeltaSeconds, 0.0f, 1.0f);
 	}
 	if (PC->IsInputKeyDown(EKeys::M))
 	{
-		MousePeekStrength = FMath::Clamp(MousePeekStrength + PeekAdjustRate * DeltaSeconds, 0.0f, 1.0f);
+		Dullness = FMath::Clamp(Dullness + 0.35f * DeltaSeconds, 0.0f, 1.0f);
 	}
 
-	// Aim-zoom tuning. Hold right mouse while adjusting to see it applied live.
-	//
-	// Letters only. Punctuation keys sit in different physical places across keyboard
-	// layouts - on Swedish QWERTY the US bracket and quote keys are Å, ¨, Ö and Ä - whereas
-	// letter keys are in the same place everywhere.
+	// Look-up limit. Negative values let the camera see into the sky.
+	if (PC->IsInputKeyDown(EKeys::J))
+	{
+		PitchMin = FMath::Clamp(PitchMin - 12.0f * DeltaSeconds, -80.0f, 89.0f);
+	}
+	if (PC->IsInputKeyDown(EKeys::L))
+	{
+		PitchMin = FMath::Clamp(PitchMin + 12.0f * DeltaSeconds, -80.0f, 89.0f);
+	}
+
+	// Shoulder offset of the current state.
+	FVector& Socket = ActiveSocketOffset();
+	if (PC->IsInputKeyDown(EKeys::I))
+	{
+		Socket.Y += 60.0f * DeltaSeconds;
+	}
+	if (PC->IsInputKeyDown(EKeys::K))
+	{
+		Socket.Y -= 60.0f * DeltaSeconds;
+	}
+
 	if (PC->IsInputKeyDown(EKeys::G))
 	{
 		AimFOVMultiplier = FMath::Clamp(AimFOVMultiplier - 0.35f * DeltaSeconds, 0.1f, 2.0f);
@@ -411,119 +359,32 @@ void AMsCharacter::TickCameraTuning(float DeltaSeconds)
 		AimDistanceMultiplier = FMath::Clamp(AimDistanceMultiplier + 0.35f * DeltaSeconds, 0.1f, 2.0f);
 	}
 
-	// Arrow keys nudge the ADS reticle. Arrows are in the same physical place on every
-	// keyboard layout, unlike punctuation.
+	// Arrows move whichever reticle is currently in force.
+	FVector2D& Reticle = ActiveCrosshairOffset();
 	const float ReticleRate = 0.35f;
 	if (PC->IsInputKeyDown(EKeys::Left))
 	{
-		AimCrosshairOffset.X = FMath::Clamp(AimCrosshairOffset.X - ReticleRate * DeltaSeconds, -1.0f, 1.0f);
+		Reticle.X = FMath::Clamp(Reticle.X - ReticleRate * DeltaSeconds, -1.0f, 1.0f);
 	}
 	if (PC->IsInputKeyDown(EKeys::Right))
 	{
-		AimCrosshairOffset.X = FMath::Clamp(AimCrosshairOffset.X + ReticleRate * DeltaSeconds, -1.0f, 1.0f);
+		Reticle.X = FMath::Clamp(Reticle.X + ReticleRate * DeltaSeconds, -1.0f, 1.0f);
 	}
 	if (PC->IsInputKeyDown(EKeys::Up))
 	{
-		AimCrosshairOffset.Y = FMath::Clamp(AimCrosshairOffset.Y - ReticleRate * DeltaSeconds, -1.0f, 1.0f);
+		Reticle.Y = FMath::Clamp(Reticle.Y - ReticleRate * DeltaSeconds, -1.0f, 1.0f);
 	}
 	if (PC->IsInputKeyDown(EKeys::Down))
 	{
-		AimCrosshairOffset.Y = FMath::Clamp(AimCrosshairOffset.Y + ReticleRate * DeltaSeconds, -1.0f, 1.0f);
+		Reticle.Y = FMath::Clamp(Reticle.Y + ReticleRate * DeltaSeconds, -1.0f, 1.0f);
 	}
 
 	ShowCameraReadout();
 }
 
-void AMsCharacter::TickCameraFollow(float DeltaSeconds)
-{
-	if (!bUseFixedCamera || !CachedCameraBoom)
-	{
-		return;
-	}
-
-	APlayerController* PC = Cast<APlayerController>(GetController());
-
-	// Q / E swing the whole view around the character. Pointless in Orbit, where the mouse
-	// already owns the yaw and this would just fight it.
-	if (PC && bAllowCameraRotate && GetEffectiveCameraMode() != EMsCameraMode::Orbit)
-	{
-		if (PC->IsInputKeyDown(EKeys::Q))
-		{
-			CameraYaw -= CameraRotateRate * DeltaSeconds;
-		}
-		if (PC->IsInputKeyDown(EKeys::E))
-		{
-			CameraYaw += CameraRotateRate * DeltaSeconds;
-		}
-	}
-
-	// Lean toward the cursor, driven by where the cursor sits ON SCREEN.
-	//
-	// The previous version used the world point under the cursor, which broke at low camera
-	// pitch: near the horizon that point is thousands of units away, so the lean saturated
-	// its clamp and lurched. Screen space is linear - centre is no lean, edge is full lean,
-	// regardless of camera angle or what the cursor happens to be over.
-	FVector DesiredPeek = FVector::ZeroVector;
-
-	// No peek in Orbit - the camera already points where you are looking.
-	if (MousePeekStrength > 0.0f && PC && UsesCursorAim())
-	{
-		int32 ViewportX = 0;
-		int32 ViewportY = 0;
-		PC->GetViewportSize(ViewportX, ViewportY);
-
-		float MouseX = 0.0f;
-		float MouseY = 0.0f;
-
-		if (ViewportX > 0 && ViewportY > 0 && PC->GetMousePosition(MouseX, MouseY))
-		{
-			// -1..1 from screen centre.
-			float NormX = (MouseX / ViewportX) * 2.0f - 1.0f;
-			float NormY = (MouseY / ViewportY) * 2.0f - 1.0f;
-
-			// Deadzone, rescaled so the lean still reaches full strength at the screen edge
-			// instead of being permanently short by the deadzone amount.
-			auto ApplyDeadzone = [this](float Value)
-			{
-				const float Magnitude = FMath::Abs(Value);
-				if (Magnitude <= PeekDeadzone)
-				{
-					return 0.0f;
-				}
-				const float Rescaled = (Magnitude - PeekDeadzone) / FMath::Max(1.0f - PeekDeadzone, KINDA_SMALL_NUMBER);
-				return FMath::Sign(Value) * FMath::Min(Rescaled, 1.0f);
-			};
-
-			NormX = ApplyDeadzone(NormX);
-			NormY = ApplyDeadzone(NormY);
-
-			// Convert screen axes into world directions using the camera's yaw. Screen Y grows
-			// downward, so it maps to negative camera-forward.
-			const FRotator YawOnly(0.0f, CameraYaw, 0.0f);
-			const FVector CameraRight = YawOnly.RotateVector(FVector::RightVector);
-			const FVector CameraForward = YawOnly.RotateVector(FVector::ForwardVector);
-
-			DesiredPeek =
-				CameraRight * NormX * PeekHorizontalScale +
-				CameraForward * -NormY * PeekVerticalScale;
-
-			DesiredPeek *= MaxPeekDistance * MousePeekStrength;
-
-			// Hold the camera steadier while aiming down sights.
-			if (IsAiming())
-			{
-				DesiredPeek *= AimPeekMultiplier;
-			}
-		}
-	}
-
-	CurrentPeekOffset = FMath::VInterpTo(CurrentPeekOffset, DesiredPeek, DeltaSeconds, PeekLagSpeed);
-	CachedCameraBoom->TargetOffset = CurrentPeekOffset;
-}
-
 void AMsCharacter::TickCameraJuice(float DeltaSeconds)
 {
-	if (!bUseFixedCamera || !CachedCameraBoom)
+	if (!bDriveCameraRig || !CachedCameraBoom)
 	{
 		return;
 	}
@@ -531,7 +392,7 @@ void AMsCharacter::TickCameraJuice(float DeltaSeconds)
 	SwayTime += DeltaSeconds;
 
 	// Trauma drains continuously. Repeated hits stack rather than restarting an animation,
-	// which is why a burst of gunfire builds into a rumble instead of stuttering.
+	// which is why sustained fire builds into a rumble instead of stuttering.
 	ShakeTrauma = FMath::Max(0.0f, ShakeTrauma - ShakeDecayRate * DeltaSeconds);
 
 	// Squaring makes small trauma nearly invisible and large trauma hit hard.
@@ -541,7 +402,6 @@ void AMsCharacter::TickCameraJuice(float DeltaSeconds)
 
 	if (bCameraSway)
 	{
-		// Sway harder the faster you are moving, so running feels physical.
 		float SpeedAlpha = 0.0f;
 		if (const UCharacterMovementComponent* Movement = GetCharacterMovement())
 		{
@@ -551,7 +411,7 @@ void AMsCharacter::TickCameraJuice(float DeltaSeconds)
 
 		const float Amplitude = SwayAmplitude * (1.0f + SpeedAlpha * SwayMoveBoost);
 
-		// Two different frequencies so it never traces a repeating circle.
+		// Unrelated frequencies so it never traces a repeating circle.
 		Offset.Pitch += FMath::Sin(SwayTime * SwayFrequency) * Amplitude;
 		Offset.Yaw += FMath::Cos(SwayTime * SwayFrequency * 0.73f) * Amplitude;
 		Offset.Roll += FMath::Sin(SwayTime * SwayFrequency * 0.41f) * Amplitude * 0.5f;
@@ -570,7 +430,6 @@ void AMsCharacter::TickCameraJuice(float DeltaSeconds)
 
 void AMsCharacter::AddCameraShake(float Trauma)
 {
-	// Only the player looking through this camera should feel it.
 	if (!IsLocallyControlled())
 	{
 		return;
@@ -606,23 +465,27 @@ void AMsCharacter::ShowCameraReadout() const
 		return;
 	}
 
-	// Debug only - fixed message keys so the lines update in place instead of scrolling.
+	const bool bAiming = IsAiming();
+	const FVector2D Reticle = bAiming ? AimCrosshairOffset : HipCrosshairOffset;
+	const FVector Socket = bAiming ? AimSocketOffset : HipSocketOffset;
+	const float Dullness = bAiming ? AimCameraDullness : CameraDullness;
+
+	// Fixed message keys so the lines update in place instead of scrolling.
 	GEngine->AddOnScreenDebugMessage(9001, 0.0f, FColor::Yellow,
-		FString::Printf(TEXT("PITCH  %.1f      [I raise / K lower]"), CameraPitch));
+		FString::Printf(TEXT("FOV     %.1f      [U narrow / O wide]"), CameraFOV));
 	GEngine->AddOnScreenDebugMessage(9002, 0.0f, FColor::Yellow,
-		FString::Printf(TEXT("FOV    %.1f      [U narrow / O wide]"), CameraFOV));
+		FString::Printf(TEXT("DIST    %.0f      [scroll wheel]"), CameraDistance));
 	GEngine->AddOnScreenDebugMessage(9003, 0.0f, FColor::Yellow,
-		FString::Printf(TEXT("DIST   %.0f      [scroll wheel]"), CameraDistance));
+		FString::Printf(TEXT("PITCH   %.1f  (limits %.0f to %.0f)   [J raise / L lower look-up limit]"),
+			CameraPitch, PitchMin, PitchMax));
 	GEngine->AddOnScreenDebugMessage(9004, 0.0f, FColor::Yellow,
-		FString::Printf(TEXT("YAW    %.1f      [J left / L right, or Q/E]"), CameraYaw));
+		FString::Printf(TEXT("DULLNESS %.2f     [N snappier / M duller]"), Dullness));
 	GEngine->AddOnScreenDebugMessage(9005, 0.0f, FColor::Yellow,
-		FString::Printf(TEXT("PEEK   %.2f      [N less / M more]"), MousePeekStrength));
-	GEngine->AddOnScreenDebugMessage(9007, 0.0f, IsAiming() ? FColor::Cyan : FColor::Silver,
-		FString::Printf(TEXT("ADS FOVx %.2f  [G less / H more]   DISTx %.2f  [V less / B more]%s"),
-			AimFOVMultiplier, AimDistanceMultiplier, IsAiming() ? TEXT("   << AIMING") : TEXT("")));
-	GEngine->AddOnScreenDebugMessage(9009, 0.0f, IsAiming() ? FColor::Cyan : FColor::Silver,
-		FString::Printf(TEXT("ADS RETICLE  x %.3f  y %.3f   [arrow keys]   SHOULDER Y %.0f"),
-			AimCrosshairOffset.X, AimCrosshairOffset.Y, AimSocketOffset.Y));
+		FString::Printf(TEXT("RETICLE x %.3f  y %.3f   [arrows]     SHOULDER Y %.0f   [I out / K in]"),
+			Reticle.X, Reticle.Y, Socket.Y));
+	GEngine->AddOnScreenDebugMessage(9007, 0.0f, bAiming ? FColor::Cyan : FColor::Silver,
+		FString::Printf(TEXT("ADS FOVx %.2f  [G / H]     DISTx %.2f  [V / B]%s"),
+			AimFOVMultiplier, AimDistanceMultiplier, bAiming ? TEXT("   << AIMING") : TEXT("")));
 	GEngine->AddOnScreenDebugMessage(9006, 0.0f, FColor::Green,
 		TEXT("--- CAMERA TUNING (P to hide) ---"));
 }
@@ -633,72 +496,11 @@ void AMsCharacter::OnToggleTuning()
 
 	if (!bCameraTuningMode && GEngine)
 	{
-		// Clear the readout lines so they do not linger once tuning is off.
 		for (int32 Key = 9001; Key <= 9009; ++Key)
 		{
 			GEngine->RemoveOnScreenDebugMessage(Key);
 		}
 	}
-}
-
-bool AMsCharacter::ComputeAimPoint(FVector& OutAimPoint) const
-{
-	const APlayerController* PC = Cast<APlayerController>(GetController());
-	UWorld* World = GetWorld();
-	if (!PC || !World)
-	{
-		return false;
-	}
-
-	FVector RayOrigin;
-	FVector RayDirection;
-
-	if (UsesCursorAim())
-	{
-		if (!PC->DeprojectMousePositionToWorld(RayOrigin, RayDirection))
-		{
-			return false;
-		}
-	}
-	else
-	{
-		// Orbit mode: the mouse is turning the camera, so aim comes from screen centre.
-		int32 ViewportX = 0;
-		int32 ViewportY = 0;
-		PC->GetViewportSize(ViewportX, ViewportY);
-
-		if (ViewportX <= 0 || ViewportY <= 0)
-		{
-			return false;
-		}
-
-		// Deproject through the reticle's actual screen position, not blindly through the
-		// centre - otherwise moving the reticle would make it lie about where shots land.
-		const float ScreenX = ViewportX * 0.5f + AimCrosshairOffset.X * ViewportX * 0.5f;
-		const float ScreenY = ViewportY * 0.5f + AimCrosshairOffset.Y * ViewportY * 0.5f;
-
-		if (!PC->DeprojectScreenPositionToWorld(ScreenX, ScreenY, RayOrigin, RayDirection))
-		{
-			return false;
-		}
-	}
-
-	const FVector RayEnd = RayOrigin + RayDirection * AimTraceDistance;
-
-	FCollisionQueryParams Params(SCENE_QUERY_STAT(MsAimTrace), /*bTraceComplex=*/false);
-	Params.AddIgnoredActor(this);
-
-	// Tracing rather than projecting onto a ground plane is what lets the cursor pick out
-	// flying clankers - the ray passes through them on its way down.
-	FHitResult Hit;
-	if (World->LineTraceSingleByChannel(Hit, RayOrigin, RayEnd, ECC_Visibility, Params))
-	{
-		OutAimPoint = Hit.ImpactPoint;
-		return true;
-	}
-
-	OutAimPoint = RayEnd;
-	return true;
 }
 
 void AMsCharacter::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -717,11 +519,14 @@ void AMsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 		return;
 	}
 
-	// Direct key bindings for now. Movement still comes from the Blueprint's Enhanced Input
-	// graph, which we are not touching. These become proper Input Action assets once the
-	// mechanics are worth committing to - those are editor-authored binary assets.
+	// Direct key bindings for now. Movement and look still come from the Blueprint's Enhanced
+	// Input graph. These become proper Input Action assets once the mechanics are worth
+	// committing to - those are editor-authored binary assets.
 	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Pressed, this, &AMsCharacter::OnAttackPressed);
 	PlayerInputComponent->BindKey(EKeys::LeftMouseButton, IE_Released, this, &AMsCharacter::OnAttackReleased);
+
+	PlayerInputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AMsCharacter::OnAimPressed);
+	PlayerInputComponent->BindKey(EKeys::RightMouseButton, IE_Released, this, &AMsCharacter::OnAimReleased);
 
 	PlayerInputComponent->BindKey(EKeys::One, IE_Pressed, this, &AMsCharacter::OnSelectSword);
 	PlayerInputComponent->BindKey(EKeys::Two, IE_Pressed, this, &AMsCharacter::OnSelectGun);
@@ -730,23 +535,16 @@ void AMsCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCompone
 	PlayerInputComponent->BindKey(EKeys::MouseScrollDown, IE_Pressed, this, &AMsCharacter::OnZoomOut);
 
 	PlayerInputComponent->BindKey(EKeys::P, IE_Pressed, this, &AMsCharacter::OnToggleTuning);
-
-	PlayerInputComponent->BindKey(EKeys::RightMouseButton, IE_Pressed, this, &AMsCharacter::OnAimPressed);
-	PlayerInputComponent->BindKey(EKeys::RightMouseButton, IE_Released, this, &AMsCharacter::OnAimReleased);
-
-	PlayerInputComponent->BindKey(EKeys::C, IE_Pressed, this, &AMsCharacter::OnCycleCameraMode);
 }
 
 void AMsCharacter::OnZoomIn()
 {
 	CameraDistance = FMath::Clamp(CameraDistance - ZoomStep, MinCameraDistance, MaxCameraDistance);
-	ApplyCameraSettings();
 }
 
 void AMsCharacter::OnZoomOut()
 {
 	CameraDistance = FMath::Clamp(CameraDistance + ZoomStep, MinCameraDistance, MaxCameraDistance);
-	ApplyCameraSettings();
 }
 
 void AMsCharacter::OnAttackPressed()

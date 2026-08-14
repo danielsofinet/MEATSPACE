@@ -26,31 +26,14 @@ void AMsHUD::DrawHUD()
 		return;
 	}
 
-	// Two aiming schemes, two reticle positions:
-	//   cursor modes - the marker follows the mouse, which is the aiming device
-	//   orbit / ADS  - fixed position, offset from centre by the character's setting
-	// Either way this must match the point ComputeAimPoint deprojects through, or the
-	// crosshair would lie about where shots land.
+	// The reticle sits at a fixed screen position, offset from centre. This MUST match the
+	// point ComputeAimPoint deprojects through, or the crosshair would lie about where shots
+	// land. A dead-centre reticle is wrong for this camera: the boom points at the character,
+	// so screen centre is the ground just behind him.
 	float CentreX = Canvas->ClipX * 0.5f;
 	float CentreY = Canvas->ClipY * 0.5f;
 
-	const AMsCharacter* Character = Cast<AMsCharacter>(GetOwningPawn());
-	const bool bCursorAim = !Character || Character->UsesCursorAim();
-
-	if (bCursorAim)
-	{
-		if (const APlayerController* PC = GetOwningPlayerController())
-		{
-			float MouseX = 0.0f;
-			float MouseY = 0.0f;
-			if (PC->GetMousePosition(MouseX, MouseY))
-			{
-				CentreX = MouseX;
-				CentreY = MouseY;
-			}
-		}
-	}
-	else
+	if (const AMsCharacter* Character = Cast<AMsCharacter>(GetOwningPawn()))
 	{
 		const FVector2D Offset = Character->GetCrosshairScreenOffset();
 		CentreX += Offset.X * Canvas->ClipX * 0.5f;

@@ -152,7 +152,18 @@ void AMsCharacter::ApplyCameraSettings()
 		CachedCameraBoom->SetWorldRotation(FRotator(-CameraPitch, CameraYaw, 0.0f));
 
 		CachedCameraBoom->TargetArmLength = CurrentDistance;
-		CachedCameraBoom->TargetOffset = FVector::ZeroVector;
+
+		// Keep the camera above the floor when looking up.
+		//
+		// The boom trails behind whatever it points at, so tilting up swings the camera DOWN
+		// and back - at this arm length that buries it underground long before the pitch limit
+		// is reached. Clamping the look-up angle would "fix" it by making flying clankers
+		// unhittable, so instead we raise the boom's pivot by exactly the shortfall.
+		const float PitchRadians = FMath::DegreesToRadians(CameraPitch);
+		const float CameraHeightAbovePivot = FMath::Sin(PitchRadians) * CurrentDistance;
+		const float RequiredLift = FMath::Max(0.0f, MinCameraHeight - CameraHeightAbovePivot);
+
+		CachedCameraBoom->TargetOffset = FVector(0.0f, 0.0f, RequiredLift);
 
 		// Shoulder shift, eased. SocketOffset is applied in the boom's own space, so it moves
 		// the character sideways in frame without changing where the camera points.

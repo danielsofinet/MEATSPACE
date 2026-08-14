@@ -100,24 +100,35 @@ protected:
 
 	/** Downward tilt in degrees. Mouse-driven at runtime; this is the starting value. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "-60.0", ClampMax = "89.0"))
-	float CameraPitch = 24.0f;
+	float CameraPitch = 18.7f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera")
 	float CameraYaw = 0.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "100.0"))
-	float CameraDistance = 3090.0f;
+	float CameraDistance = 2450.0f;
 
 	/** Narrow FOV compresses depth - this is what creates the forced-perspective look. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "5.0", ClampMax = "120.0"))
-	float CameraFOV = 40.6f;
+	float CameraFOV = 62.9f;
+
+	/**
+	 * Keeps the camera this far above the character's origin, no matter the pitch.
+	 *
+	 * Looking up swings the boom DOWN behind the character - at 2450 units of arm and -35
+	 * degrees of pitch that puts the camera ~1400 units underground. Rather than clamp how
+	 * far you can look up (which would make flying clankers unhittable), the boom's pivot is
+	 * raised by however much is needed to keep the camera above the floor.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "0.0"))
+	float MinCameraHeight = 160.0f;
 
 	/** How lazily the boom follows the character's position. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera", meta = (ClampMin = "0.0"))
 	float CameraLagSpeed = 9.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Zoom", meta = (ClampMin = "100.0"))
-	float MinCameraDistance = 2450.0f;
+	float MinCameraDistance = 1500.0f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Zoom", meta = (ClampMin = "100.0"))
 	float MaxCameraDistance = 4210.0f;
@@ -152,11 +163,11 @@ protected:
 	 * and floaty. Some dullness gives the camera weight; too much feels like lag.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float CameraDullness = 0.35f;
+	float CameraDullness = 0.86f;
 
 	/** Dullness while aiming. Lower than hipfire - precision wants a rigid camera. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.0", ClampMax = "1.0"))
-	float AimCameraDullness = 0.10f;
+	float AimCameraDullness = 0.80f;
 
 	/** How fast the character's body swings round to face where the camera looks. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Camera|Look", meta = (ClampMin = "0.1"))
@@ -169,11 +180,11 @@ protected:
 	 * up. Pushed well above centre so it does not sit on the character's head.
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Reticle")
-	FVector2D HipCrosshairOffset = FVector2D(0.0f, -0.28f);
+	FVector2D HipCrosshairOffset = FVector2D(0.076f, -0.142f);
 
 	/** Reticle position while aiming. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Reticle")
-	FVector2D AimCrosshairOffset = FVector2D(0.0f, -0.12f);
+	FVector2D AimCrosshairOffset = FVector2D(-0.298f, -0.120f);
 
 	/** Camera shoulder shift while NOT aiming. X forward, Y right, Z up. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Reticle")
@@ -188,8 +199,12 @@ protected:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom")
 	bool bAllowAimZoom = true;
 
+	/**
+	 * 0.28 of a 62.9 base gives ~17.6 degrees while aiming - a strong magnification, which is
+	 * what the tuning session converged on. The base FOV stays wide for hipfire.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.1", ClampMax = "2.0"))
-	float AimFOVMultiplier = 0.72f;
+	float AimFOVMultiplier = 0.28f;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Aim|Zoom", meta = (ClampMin = "0.1", ClampMax = "2.0"))
 	float AimDistanceMultiplier = 0.88f;

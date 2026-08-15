@@ -35,13 +35,36 @@ The entire modular cosmetics pipeline is proven end to end.
 - `ABP_MsCharacter` (parent `MsAnimInstance`) drives the template's existing
   `BS_Idle_Walk_Run` with `Direction` + `GroundSpeed`. **Strafing now works.**
 
-### IN PROGRESS — pick up here
+**Jump is done properly** — a `Locomotion` state machine inside `ABP_MsCharacter`:
+Grounded (`BS_Idle_Walk_Run`) → JumpStart (`MM_Jump`) → Falling (`MM_Fall_Loop`) → Landing
+(`MM_Land`) → Grounded, plus a Falling → Grounded shortcut when `NOT bIsInAir AND GroundSpeed
+> 300` so a running landing does not stumble.
 
-**The jump animation is missing.** The new AnimGraph only handles locomotion.
+### PICK UP HERE — the animation graph is not finished
 
-Next step is a **proper state machine**, not a blend-by-bool: Idle/Run → Jump Start
-(`MM_Jump`) → Fall Loop (`MM_Fall_Loop`) → Land (`MM_Land`), driven by `bIsInAir`. Same graph
-then gains the upper-body sword layer (`bIsSwinging`) and the aim offset (`AimPitch`).
+Still to layer onto the same state machine:
+1. **Aim offset** — drive the upper body from `AimPitch` / `AimYaw` so the character points
+   where the reticle is, instead of firing level at a flying clanker
+2. **Upper-body sword layer** — blend the melee montages (`MM_Attack_01/02/03`) over
+   locomotion on `bIsSwinging`, using a layered blend per bone from `spine_01`
+3. **Weapon-specific locomotion** — `ActiveSlot` can switch to the rifle/pistol animation sets
+   the template already ships
+
+### Animation Blueprint gotchas
+
+- **Booleans lose their `b` in the editor**: `bIsInAir` appears as **`Is In Air`**
+- **My Blueprint hides inherited variables by default** — gear icon → Show Inherited
+  Variables. Everything in this ABP comes from the C++ parent, so with it off the panel looks
+  empty
+- **A new transition has an EMPTY condition and never fires.** It looks completely normal in
+  the state machine view. The compiler says so explicitly: *"will never be taken, please
+  connect something to Can Enter Transition"* — read those warnings
+- One-shot states need **`Automatic Rule Based on Sequence Player`** ticked in the transition's
+  Details, and the animation's **Loop unticked**, or the sequence never ends
+- Only the state machine may reach **Output Pose**. A leftover direct blendspace connection
+  silently bypasses the entire state machine
+- The ABP editor previews its own puppet that never jumps — switch the **debug target**
+  dropdown to the live game instance to watch real values during PIE
 
 ### The character pipeline is documented
 

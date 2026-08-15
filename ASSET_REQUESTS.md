@@ -18,6 +18,49 @@ is still moving and shouldn't be modelled yet.
 
 ---
 
+## Blender → Unreal pipeline: proven, with the traps
+
+A throwaway MakeHuman body was taken end to end on 2026-08-15 purely to prove this. It works.
+These are the things that cost time, so the real character does not repeat them.
+
+**Blender setup**
+- Scene Units: **Unit Scale `1.0`, Length `Centimeters`**. Model at 1.8 units; it displays as
+  180 cm. Setting Unit Scale to 0.01 breaks the FBX importer's scaling — do not.
+- Import the mannequin from `SKM_Manny_Simple` (not `SK_Mannequin` — that is the *skeleton*
+  asset and only exports as T3D).
+
+**Rigging — the order matters**
+1. Convert to Mesh first (`Object → Convert → Mesh`) to bake shape keys and apply the helper
+   mask. Save a *source* .blend with the live shape keys first — body type two needs them.
+2. On the armature, untick **Deform** on `root`, all `ik_*`, `interaction`, `center_of_mass`.
+3. **Delete any existing `root` / `ik_*` vertex groups BEFORE auto-weighting.** Deform only
+   stops *new* weights being assigned; it does not clear ones already there, and deleting them
+   afterwards leaves those vertices with no weights at all.
+4. `Ctrl+P → With Automatic Weights`. (In the Outliner, `Ctrl`+click to multi-select, not Shift.)
+5. Clean up: `Weights → Limit Total` = 4, then `Normalize All`.
+
+**Export**
+- Selected objects only: the mesh **and** the armature
+- Object Types: Armature + Mesh · **Apply Modifiers** on
+- **Only Deform Bones OFF** — the non-deforming root and IK bones must still export or the
+  skeleton will not match
+- **Add Leaf Bones OFF** — extra `_end` bones break skeleton matching
+- **Check the file size.** A full body is 2–4 MB. Under a few hundred KB means the mesh was not
+  included and Unreal will say "nothing to import".
+
+**Import**
+- **Skeleton → `SK_Mannequin`.** Leave it blank and Unreal silently creates a new skeleton:
+  imports without error, animates never.
+- Import Morph Targets on (for blink shape keys later)
+
+**Diagnosing bad deformation**
+- Bind pose fine but broken in animation → weights, not import
+- Geometry stretching to a point on the floor → something weighted to `root` or an `ik_*` bone
+- A patch that does not move at all → those vertices have no weights
+- To name a culprit exactly: Edit Mode, select a vertex, `N` panel → **Vertex Weights**
+
+---
+
 ## Open requests
 
 ### 1. Main character — highest priority

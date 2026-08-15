@@ -22,3 +22,7 @@ Desktop.ini
 
 # --- Local scratch ---
 /_scratch/
+
+# Blender autosave backups
+*.blend1
+*.blend2

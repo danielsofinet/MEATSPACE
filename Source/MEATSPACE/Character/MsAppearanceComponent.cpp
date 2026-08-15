@@ -185,15 +185,19 @@ void UMsAppearanceComponent::ApplyGarments()
 				GarmentComponent->SetupAttachment(Body);
 				GarmentComponent->RegisterComponent();
 
-				// Driven entirely by the body's pose. No animation blueprint, no separate
-				// evaluation - this is what makes a garment cost almost nothing and animate
-				// perfectly in step with the body.
-				GarmentComponent->SetLeaderPoseComponent(Body);
-
 				GarmentComponents.Add(Slot, GarmentComponent);
 			}
 
 			GarmentComponent->SetSkeletalMeshAsset(GarmentMesh);
+
+			// Driven entirely by the body's pose: no animation blueprint, no separate
+			// evaluation, and it stays in perfect step with the body.
+			//
+			// This MUST come after the mesh is assigned. The link builds its bone mapping from
+			// whatever mesh is present when it is set, so establishing it against an empty
+			// component leaves a stale mapping - the garment renders but never deforms.
+			GarmentComponent->SetLeaderPoseComponent(Body);
+
 			GarmentComponent->SetVisibility(true);
 
 			// Colourway. Applied to every material on the garment, so a piece made of several

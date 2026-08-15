@@ -21,6 +21,9 @@ UMsAppearanceComponent::UMsAppearanceComponent()
 	SkinSectionNames.Add(EMsBodySlot::Feet, FName("Skin_Feet"));
 
 	DefaultAppearance.Garments.SetNum(static_cast<int32>(EMsBodySlot::MAX));
+
+	// White is "no tint" - the garment keeps whatever look its material was authored with.
+	DefaultAppearance.GarmentTints.Init(FLinearColor::White, static_cast<int32>(EMsBodySlot::MAX));
 }
 
 void UMsAppearanceComponent::GetLifetimeReplicatedProps(TArray<FLifetimeProperty>& OutLifetimeProps) const
@@ -41,9 +44,26 @@ void UMsAppearanceComponent::BeginPlay()
 		Appearance = DefaultAppearance;
 	}
 
-	Appearance.Garments.SetNum(static_cast<int32>(EMsBodySlot::MAX));
+	EnsureSlotArrays();
 
 	ApplyAppearance();
+}
+
+void UMsAppearanceComponent::EnsureSlotArrays()
+{
+	const int32 SlotCount = static_cast<int32>(EMsBodySlot::MAX);
+
+	Appearance.Garments.SetNum(SlotCount);
+
+	const int32 FirstNewTint = Appearance.GarmentTints.Num();
+	if (FirstNewTint < SlotCount)
+	{
+		Appearance.GarmentTints.SetNum(SlotCount);
+		for (int32 TintIndex = FirstNewTint; TintIndex < SlotCount; ++TintIndex)
+		{
+			Appearance.GarmentTints[TintIndex] = FLinearColor::White;
+		}
+	}
 }
 
 USkeletalMeshComponent* UMsAppearanceComponent::GetBodyMesh() const
@@ -60,7 +80,7 @@ void UMsAppearanceComponent::OnRep_Appearance()
 void UMsAppearanceComponent::SetAppearance(const FMsAppearance& NewAppearance)
 {
 	Appearance = NewAppearance;
-	Appearance.Garments.SetNum(static_cast<int32>(EMsBodySlot::MAX));
+	EnsureSlotArrays();
 
 	ApplyAppearance();
 }
@@ -79,13 +99,9 @@ USkeletalMesh* UMsAppearanceComponent::GetEquippedGarment(EMsBodySlot Slot) cons
 
 void UMsAppearanceComponent::EquipGarment(EMsBodySlot Slot, USkeletalMesh* GarmentMesh)
 {
-	const int32 Index = static_cast<int32>(Slot);
-	if (!Appearance.Garments.IsValidIndex(Index))
-	{
-		Appearance.Garments.SetNum(static_cast<int32>(EMsBodySlot::MAX));
-	}
+	EnsureSlotArrays();
 
-	Appearance.Garments[Index] = GarmentMesh;
+	Appearance.Garments[static_cast<int32>(Slot)] = GarmentMesh;
 
 	ApplyGarments();
 }
@@ -93,6 +109,15 @@ void UMsAppearanceComponent::EquipGarment(EMsBodySlot Slot, USkeletalMesh* Garme
 void UMsAppearanceComponent::UnequipGarment(EMsBodySlot Slot)
 {
 	EquipGarment(Slot, nullptr);
+}
+
+void UMsAppearanceComponent::SetGarmentTint(EMsBodySlot Slot, FLinearColor Tint)
+{
+	EnsureSlotArrays();
+
+	Appearance.GarmentTints[static_cast<int32>(Slot)] = Tint;
+
+	ApplyGarments();
 }
 
 void UMsAppearanceComponent::ApplyAppearance()
@@ -170,6 +195,21 @@ void UMsAppearanceComponent::ApplyGarments()
 
 			GarmentComponent->SetSkeletalMeshAsset(GarmentMesh);
 			GarmentComponent->SetVisibility(true);
+
+			// Colourway. Applied to every material on the garment, so a piece made of several
+			// materials still recolours as one item.
+			const FLinearColor Tint = Appearance.GarmentTints.IsValidIndex(SlotIndex)
+				? Appearance.GarmentTints[SlotIndex]
+				: FLinearColor::White;
+
+			const int32 NumGarmentMaterials = GarmentComponent->GetNumMaterials();
+			for (int32 MaterialIndex = 0; MaterialIndex < NumGarmentMaterials; ++MaterialIndex)
+			{
+				if (UMaterialInstanceDynamic* Dynamic = GarmentComponent->CreateAndSetMaterialInstanceDynamic(MaterialIndex))
+				{
+					Dynamic->SetVectorParameterValue(GarmentTintParameter, Tint);
+				}
+			}
 
 			// Hide the skin underneath so it cannot poke through.
 			if (const FName* SectionName = SkinSectionNames.Find(Slot))

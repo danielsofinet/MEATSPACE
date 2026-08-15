@@ -45,6 +45,10 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "Meatspace|Appearance")
 	void UnequipGarment(EMsBodySlot Slot);
 
+	/** Recolours whatever is in the slot. White means "leave the material as authored". */
+	UFUNCTION(BlueprintCallable, Category = "Meatspace|Appearance")
+	void SetGarmentTint(EMsBodySlot Slot, FLinearColor Tint);
+
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Appearance")
 	USkeletalMesh* GetEquippedGarment(EMsBodySlot Slot) const;
 
@@ -64,6 +68,10 @@ protected:
 	/** Vector parameter on the skin material that receives the tone. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Appearance")
 	FName SkinToneParameter = FName("SkinTone");
+
+	/** Vector parameter on clothing materials that receives the colourway. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Appearance")
+	FName GarmentTintParameter = FName("Tint");
 
 	/** Starting look, applied on BeginPlay. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Appearance")
@@ -86,6 +94,14 @@ protected:
 
 	/** The owning actor's skeletal mesh - the body everything else hangs off. */
 	USkeletalMeshComponent* GetBodyMesh() const;
+
+	/**
+	 * Sizes the per-slot arrays and fills new tint entries with white.
+	 *
+	 * Needed because an appearance can arrive from a Blueprint default, from replication, or
+	 * from code, and none of those guarantee the arrays match the current slot count.
+	 */
+	void EnsureSlotArrays();
 
 private:
 	/** One spawned component per occupied slot, driven by the body's pose. */

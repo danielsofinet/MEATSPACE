@@ -45,6 +45,16 @@ struct FMsAppearance
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance")
 	TArray<TObjectPtr<USkeletalMesh>> Garments;
 
+	/**
+	 * Colourway per slot, applied to every material on that garment.
+	 *
+	 * White leaves the garment's own material untouched, so a piece can either be tinted or
+	 * ship with its own authored look. That matters for cosmetics: most items want to be
+	 * recolourable, but a few special ones want to be exactly what the artist made.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance")
+	TArray<FLinearColor> GarmentTints;
+
 	/** Which body mesh to use. Body type is a mesh swap, not a morph. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance")
 	TObjectPtr<USkeletalMesh> BodyMesh = nullptr;

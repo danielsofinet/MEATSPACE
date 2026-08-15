@@ -64,6 +64,17 @@ void UMsAppearanceComponent::EnsureSlotArrays()
 			Appearance.GarmentTints[TintIndex] = FLinearColor::White;
 		}
 	}
+
+	const int32 FirstNewHide = Appearance.GarmentHidesSkin.Num();
+	if (FirstNewHide < SlotCount)
+	{
+		Appearance.GarmentHidesSkin.SetNum(SlotCount);
+		for (int32 HideIndex = FirstNewHide; HideIndex < SlotCount; ++HideIndex)
+		{
+			// Most clothing replaces what it covers.
+			Appearance.GarmentHidesSkin[HideIndex] = true;
+		}
+	}
 }
 
 USkeletalMeshComponent* UMsAppearanceComponent::GetBodyMesh() const
@@ -215,10 +226,16 @@ void UMsAppearanceComponent::ApplyGarments()
 				}
 			}
 
-			// Hide the skin underneath so it cannot poke through.
+			// Hide the skin underneath so it cannot poke through - unless the item sits on
+			// the body rather than replacing it. Hair is the obvious case: hiding the head
+			// section would remove the character's face.
+			const bool bHidesSkin = Appearance.GarmentHidesSkin.IsValidIndex(SlotIndex)
+				? Appearance.GarmentHidesSkin[SlotIndex]
+				: true;
+
 			if (const FName* SectionName = SkinSectionNames.Find(Slot))
 			{
-				SetSkinSectionVisible(*SectionName, false);
+				SetSkinSectionVisible(*SectionName, !bHidesSkin);
 			}
 		}
 		else

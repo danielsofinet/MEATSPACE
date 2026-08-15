@@ -55,6 +55,19 @@ struct FMsAppearance
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance")
 	TArray<FLinearColor> GarmentTints;
 
+	/**
+	 * Whether the item in each slot hides the skin beneath it.
+	 *
+	 * A jacket replaces the torso, so it hides. **Hair does not** - hiding the head section
+	 * would delete the character's face. Same for glasses, earrings, a headset: they sit on
+	 * the head without replacing it.
+	 *
+	 * Defaults to true because most clothing replaces what it covers; hair is the exception
+	 * that makes the flag necessary.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance")
+	TArray<bool> GarmentHidesSkin;
+
 	/** Which body mesh to use. Body type is a mesh swap, not a morph. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Appearance")
 	TObjectPtr<USkeletalMesh> BodyMesh = nullptr;

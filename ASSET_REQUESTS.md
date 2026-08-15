@@ -53,6 +53,53 @@ These are the things that cost time, so the real character does not repeat them.
   imports without error, animates never.
 - Import Morph Targets on (for blink shape keys later)
 
+## THE CHARACTER WORKFLOW — proven end to end 2026-08-15
+
+Follow this order for body type two and every future character. Deviating from it is what
+caused every problem the first time round.
+
+**1. Build in MPFB, and KEEP A LIVE SOURCE**
+- Set the height with MPFB's **height slider**, never by scaling the object
+- Apply hair, eyes, eyebrows, eyelashes, teeth, tongue from the system assets pack while the
+  human is still a live MPFB human — assets cannot be fitted to a baked mesh
+- Turn OFF MPFB's "set up rigging" option; its rig is not the UE5 skeleton and is never wanted
+- **`File → Save As` a source .blend before baking anything.** Once converted, the shape keys
+  are gone and no further assets can be fitted. This was lost once and cost a rebuild.
+
+**2. Bake, then merge**
+- `Object → Convert → Mesh` on the human — applies the "Hide helpers" mask (permanently
+  removing helper geometry) and bakes the shape keys
+- Convert each applied asset to mesh too, or joining discards its modifiers
+- **Join into the body:** eyebrows, eyelashes, eyes, teeth, tongue. Select them first and the
+  body **last** so the body is active
+- **Do NOT join the hair** — it stays separate as a Head slot garment
+- Joined parts vanish? The body's Mask modifier is hiding them. Bake or remove it first.
+
+**3. Rig BEFORE assigning materials**
+- `Ctrl+P → With Automatic Weights`, **X Mirror on** (symmetric weights, and it fixes a limb
+  that came out worse than its mirror)
+- Rigging first is what creates the bone vertex groups; material assignment then uses them to
+  select regions, so doing it the other way round leaves nothing to select
+
+**4. Material sections** — six skin slots plus `Eyes`, `Eyebrows`, `Eyelashes`, `Teeth`
+- Select by bone vertex group (Vertex Groups → **Select**), then Material slot → **Assign**
+- Every face must land on exactly one slot
+
+**5. Fix the rigid parts by hand** — teeth, tongue, hair, hats, glasses
+- Auto-weights scatters sealed-in geometry across neck and spine bones, and it visibly lags
+- Select the shell (`L`), **Remove from All Groups**, then assign **`head`** at weight `1.0`
+- Face in the way? Select the head shell with `L` and press `H` to hide it, `Alt+H` after
+- Same for hair: it does not need weight transfer at all. One group, `head`, weight 1.0.
+  Manually creating the vertex group and Armature modifier is perfectly valid and faster than
+  fighting the parenting operators
+
+**6. Verify, then export** — pose a limb and the head. Nothing leaves Blender until it deforms.
+
+**Note:** rebuilding this way also eliminated the thigh deformation that plagued the first
+attempt. The order is the fix — not weight painting.
+
+---
+
 **Weighting a GARMENT — use the Data Transfer modifier, not Automatic Weights**
 
 This is the reliable route and it was found the hard way. Automatic Weights uses "bone heat",

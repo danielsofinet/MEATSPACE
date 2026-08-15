@@ -53,6 +53,42 @@ These are the things that cost time, so the real character does not repeat them.
   imports without error, animates never.
 - Import Morph Targets on (for blink shape keys later)
 
+**Weighting a GARMENT — use the Data Transfer modifier, not Automatic Weights**
+
+This is the reliable route and it was found the hard way. Automatic Weights uses "bone heat",
+which **fails silently** on messy geometry — duplicate verts, non-manifold edges, anything
+decimated from a downloaded asset. It still creates the Armature modifier and the bone-named
+vertex groups, so everything *looks* correctly bound, but the groups are empty and the garment
+is rigid. A garment can look perfectly set up and be completely dead.
+
+Clean the mesh first: Edit Mode, `A`, **`M` → Merge by Distance**, **`Shift+N`** to recalculate
+normals, and delete anything under **Select All by Trait → Loose Geometry**.
+
+Then, on the garment:
+1. **Add Modifier → Edit → Data Transfer**
+2. **Source:** the body mesh
+3. Enable **Vertex Data**, click **Vertex Group(s)**
+4. **Mapping: Nearest Face Interpolated**
+5. **Generate Data Layers**
+6. **Apply**
+
+It copies the body's weights across geometrically rather than computing new ones, so messy
+topology does not matter — and because the garment sits directly on the body, the body's
+weights are already correct for it.
+
+**Never export a garment until it deforms in Blender.** Pose an arm and watch it. If it is
+rigid there it will be rigid in Unreal, and everything after that is wasted time.
+
+**Clothing fit: only the edges matter**
+
+Equipping a garment hides the whole skin section it covers, so the body underneath the torso
+is simply not rendered — intersection there is invisible and not worth fixing.
+
+What does matter is where a garment meets **still-visible** skin: sleeve ends against
+`Skin_Arms`, the collar against `Skin_Head`, the waist against `Skin_Legs`. Model those edges
+clearly **proud of the body**, and check them with the limb **posed**, not at rest — sleeves
+pinch most when the shoulder rotates.
+
 **Diagnosing bad deformation**
 - Bind pose fine but broken in animation → weights, not import
 - Geometry stretching to a point on the floor → something weighted to `root` or an `ik_*` bone

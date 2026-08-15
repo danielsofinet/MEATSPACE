@@ -1,6 +1,7 @@
 #include "Character/MsCharacter.h"
 
 #include "Camera/CameraComponent.h"
+#include "Character/MsAppearanceComponent.h"
 #include "Combat/MsGrenadeComponent.h"
 #include "Combat/MsHealthComponent.h"
 #include "Combat/MsMeleeComponent.h"
@@ -56,6 +57,8 @@ AMsCharacter::AMsCharacter()
 	HealthComponent->ShieldRegenRate = 14.0f;
 
 	Grenade = CreateDefaultSubobject<UMsGrenadeComponent>(TEXT("Grenade"));
+
+	Appearance = CreateDefaultSubobject<UMsAppearanceComponent>(TEXT("Appearance"));
 }
 
 void AMsCharacter::BeginPlay()

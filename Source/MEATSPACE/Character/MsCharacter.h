@@ -9,6 +9,7 @@ class UMsWeaponComponent;
 class UMsMeleeComponent;
 class UMsHealthComponent;
 class UMsGrenadeComponent;
+class UMsAppearanceComponent;
 class USpringArmComponent;
 class UCameraComponent;
 
@@ -48,6 +49,10 @@ public:
 
 	UFUNCTION(BlueprintPure, Category = "Meatspace|Combat")
 	UMsGrenadeComponent* GetGrenade() const { return Grenade; }
+
+	/** Body, skin tone and clothing slots. */
+	UFUNCTION(BlueprintPure, Category = "Meatspace|Appearance")
+	UMsAppearanceComponent* GetAppearance() const { return Appearance; }
 
 	/**
 	 * Camera zoom. No longer bound to the scroll wheel - scroll swaps weapons now - but kept
@@ -154,6 +159,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Meatspace|Combat")
 	TObjectPtr<UMsGrenadeComponent> Grenade;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Meatspace|Appearance")
+	TObjectPtr<UMsAppearanceComponent> Appearance;
 
 	/** Seconds spent dead before respawning. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Meatspace|Combat", meta = (ClampMin = "0.1"))

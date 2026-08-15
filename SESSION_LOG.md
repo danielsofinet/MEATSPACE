@@ -40,15 +40,31 @@ Grounded (`BS_Idle_Walk_Run`) → JumpStart (`MM_Jump`) → Falling (`MM_Fall_Lo
 (`MM_Land`) → Grounded, plus a Falling → Grounded shortcut when `NOT bIsInAir AND GroundSpeed
 > 300` so a running landing does not stumble.
 
-### PICK UP HERE — the animation graph is not finished
+**Upper-body sword layer is wired and working.** In `ABP_MsCharacter`'s AnimGraph:
+`Locomotion` → **Save Cached Pose `LocomotionPose`**, then two **Use cached pose** nodes — one
+into `Layered blend per bone` **Base Pose**, one into `Slot 'DefaultSlot'` → **Blend Poses 0**.
+Layer Setup: bone `spine_01`, blend depth 3, mesh space rotation on. Cached pose is required
+because **AnimGraph pose pins accept only one connection** — a pose cannot be split.
 
-Still to layer onto the same state machine:
-1. **Aim offset** — drive the upper body from `AimPitch` / `AimYaw` so the character points
-   where the reticle is, instead of firing level at a flying clanker
-2. **Upper-body sword layer** — blend the melee montages (`MM_Attack_01/02/03`) over
-   locomotion on `bIsSwinging`, using a layered blend per bone from `spine_01`
-3. **Weapon-specific locomotion** — `ActiveSlot` can switch to the rifle/pistol animation sets
-   the template already ships
+Montages for `MM_Attack_01/02/03` are assigned to the Melee component's Combo Steps.
+
+### PICK UP HERE
+
+**1. Root motion is freezing movement.** The attack montages have root motion enabled, so the
+character stops walking mid-swing. Untick **Enable Root Motion** on each montage, or set the
+AnimBP's **Root Motion Mode** to *No root motion extraction*.
+
+**2. The attack animations are wrong.** `MM_Attack_01/02/03` are **unarmed punches** (and a
+spin kick) from `Anims/Unarmed/Attack/` — the template ships no sword animations at all, only
+unarmed, rifle and pistol. Daniel is looking at **Mixamo** for sword attacks. Mixamo rigs are
+not the UE5 skeleton, so they need **IK Retargeter**; **Fab** is worth checking first since
+some packs are already authored for the UE5 skeleton and skip retargeting entirely.
+
+**3. Still missing from the graph:**
+- **Aim offset** — drive the upper body from `AimPitch` / `AimYaw`, so the character points at
+  flying clankers instead of firing level
+- **Weapon-specific locomotion** — `ActiveSlot` switching to the rifle/pistol sets already in
+  the project
 
 ### Animation Blueprint gotchas
 

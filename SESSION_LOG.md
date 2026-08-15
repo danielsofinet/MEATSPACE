@@ -4,6 +4,74 @@ Newest entry at the top. Read the top entry to resume.
 
 ---
 
+## 2026-08-15 — Session 3: the character, cosmetics, and animation
+
+### Where we are
+
+**MEATSPACE has a real character.** Built in MPFB, rigged to the UE5 Mannequin skeleton, with
+hair, eyes, eyebrows, eyelashes and teeth, wearing a t-shirt, with runtime skin tone and hair
+colour — running in game, strafing correctly.
+
+The entire modular cosmetics pipeline is proven end to end.
+
+### Built this session
+
+**Appearance system** (`MsAppearanceComponent`, `MsAppearanceTypes.h`)
+- Body split into **material sections**; equipping a garment **hides the section it covers**,
+  which is how clipping is solved — the jacket replaces the torso rather than fighting it
+- **Skin tone** as one material parameter (`SkinTone`) pushed to every section at once
+- **Garment slots**: Head, Torso, Arms, Hands, Legs, Feet, Back. Each garment is a skeletal
+  mesh on the same skeleton driven via `SetLeaderPoseComponent` — animates from the body's
+  bones, no rigging, no anim blueprint, negligible cost
+- **Garment tints** (`Tint` parameter) so one mesh covers many colourways
+- **`GarmentHidesSkin`** per slot — hair must NOT hide the head section or it deletes the face
+- All in one replicated struct, so co-op peers get a coherent appearance in one update
+
+**Animation** (`MsAnimInstance` + `ABP_MsCharacter`)
+- C++ exposes ground speed, direction relative to facing, in-air, vertical velocity, smoothed
+  turn rate, aim pitch/yaw, and combat state. The graph does no maths.
+- `Direction` is the important one: the character faces the camera and strafes, so without it
+  every sideways step played a forward run
+- `ABP_MsCharacter` (parent `MsAnimInstance`) drives the template's existing
+  `BS_Idle_Walk_Run` with `Direction` + `GroundSpeed`. **Strafing now works.**
+
+### IN PROGRESS — pick up here
+
+**The jump animation is missing.** The new AnimGraph only handles locomotion.
+
+Next step is a **proper state machine**, not a blend-by-bool: Idle/Run → Jump Start
+(`MM_Jump`) → Fall Loop (`MM_Fall_Loop`) → Land (`MM_Land`), driven by `bIsInAir`. Same graph
+then gains the upper-body sword layer (`bIsSwinging`) and the aim offset (`AimPitch`).
+
+### The character pipeline is documented
+
+`ASSET_REQUESTS.md` now carries the **full proven workflow** — build in MPFB, keep a live
+source, bake, merge, **rig before materials**, section, hand-weight the rigid parts, verify,
+export. Follow it exactly for body type two. The order *is* the fix: rebuilding this way also
+eliminated a thigh deformation that resisted weight painting entirely.
+
+### Gotchas learned (all in ASSET_REQUESTS.md)
+
+- **Garments: Data Transfer modifier, never Automatic Weights.** Bone heat fails *silently* on
+  decimated or downloaded meshes — the mesh looks bound and is completely rigid
+- **Rigid parts (hair, teeth, tongue, hats): one vertex group, `head`, weight 1.0.** Weight
+  transfer is the wrong tool and they visibly lag
+- **Never export until it deforms in Blender**, and **check the FBX file size** — a body is
+  2–5 MB, near-zero means the mesh was not included
+- `SetLeaderPoseComponent` must be called **after** the mesh is assigned, or the garment
+  renders and never deforms
+- Assets cannot be fitted to a **baked** MPFB human — keep `character_source.blend` alive
+- A downloaded t-shirt was **121 MB**; game garments want 2,000–8,000 triangles. Watch the
+  GitHub LFS quota (1 GB free, ~250 MB already spent)
+
+### Next steps
+
+1. **Finish the animation graph properly** — state machine, aim offset, sword layer
+2. Body type two, using the documented workflow
+3. Back to the onboarding level with a real character in it
+
+---
+
 ## 2026-08-14 — Session 2: combat, camera, and the onboarding level
 
 ### Where we are
